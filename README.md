@@ -1,0 +1,247 @@
+# Claude Companion
+
+A ChatGPT-desktop-style floating companion window for **Claude.ai** on macOS.
+
+Press **⌥Space** (Option+Space) anywhere to summon a small floating window with
+your Claude.ai account inside it. Press **⌥Space** again (or **Esc**) to dismiss it.
+
+It's a native, lightweight AppKit app: a borderless floating `NSPanel` hosting a
+`WKWebView` pointed at `claude.ai`. Because it embeds the real web app and uses a
+persistent cookie store, you log in once with your normal account and stay logged in.
+
+## Build & run
+
+No Xcode required - just the Command Line Tools Swift toolchain.
+
+```bash
+./build.sh --run     # build the .app bundle and (re)launch it
+./build.sh           # build only, into ./build/Claude Companion.app
+```
+
+The app has **no Dock icon**; look for the 🗨️ icon in the menu bar for
+Show/Hide, Reload, and Quit. The menu item always shows the shortcut that is
+actually active.
+
+## Usage
+
+| Action | How |
+|--------|-----|
+| Show / hide the window | **⌥Space** |
+| Dismiss the window | **Esc** |
+| Move the window | drag anywhere on it |
+| Reload / New Chat / Quit | menu-bar icon |
+| Stop it following the active window | menu bar → **Follow Active Window** |
+| Put the window back in its default spot | menu bar → **Reset Position** |
+| Toggle from a script | `./toggle.sh` or `open -g "claudecompanion://toggle"` |
+
+The URL scheme (`claudecompanion://toggle`, `://show`, `://hide`) makes the window
+bindable from Raycast, Shortcuts, or Alfred.
+
+## Architecture
+
+| File | Role |
+|------|------|
+| `main.swift` | Boots `NSApplication` as an accessory (menu-bar-only) app; installs an uncaught-exception logger. |
+| `AppDelegate.swift` | Builds the status item, floating panel, and web view; hot key + URL-scheme actions. |
+| `CompanionPanel.swift` | Borderless `NSPanel` subclass that can take keyboard focus + Esc-to-dismiss. |
+| `ActiveWindow.swift` | Finds the window the user is working in, without needing any TCC permission. |
+| `WebChrome.swift` | Injected CSS for the translucent, single-conversation look, plus DOM probes. |
+| `PopupWindow.swift` | Real secondary window for `window.open` sign-in popups. |
+| `GlobalHotKey.swift` | System-wide hot key via Carbon (no Accessibility permission needed), with fallback combos. |
+| `Log.swift` | stderr + `~/Library/Logs/ClaudeCompanion.log` logging. |
+| `build.sh` | Compiles with SwiftPM and assembles a signed `.app` bundle. |
+
+### Appearance
+
+The panel is a translucent, single-conversation view rather than the full claude.ai app:
+
+- An `NSVisualEffectView` (`.hudWindow`, `.behindWindow`) provides the macOS blur,
+  with an 18pt corner radius and a hairline white border so the panel still has
+  definition against a light backdrop.
+- Three separate things paint an opaque backdrop, and **all** of them have to be
+  cleared or the panel stays solid:
+  1. `webView.underPageBackgroundColor = .clear`.
+  2. `_setDrawsBackground:` - on macOS the clear `underPageBackgroundColor` above is
+     *not* sufficient on its own; WKWebView keeps painting an opaque backdrop. This
+     is private API, so it is probed with `responds(to:)` first and logged if absent,
+     rather than risking a crash on a future macOS.
+  3. CSS for `body`, `main.dframe-content`, **and** a full-bleed
+     `div.pointer-events-none.absolute.inset-0` overlay that sits on top of `main`.
+- The sidebar, recents, pinned lists, and app header are hidden, leaving just the
+  conversation.
+- The default scrollbar is replaced with a 6pt translucent one.
+
+### Compact mode
+
+With no conversation open, the window collapses to **just the composer** - no greeting,
+no icons, no empty space - and expands to full height once a conversation starts, like
+the ChatGPT companion.
+
+- The composer is isolated **structurally**: every sibling along its ancestor chain is
+  hidden (`WebChrome.layoutJS`). The chain is something the DOM guarantees; the
+  Tailwind class names on the greeting and header are not, so hiding by name would be
+  the fragile choice.
+- **The walk stops at `<main>`.** Above `main` is the app's layout scaffolding,
+  including a CSS Grid. Hiding an item inside that grid removes it from grid layout,
+  which re-places the surviving item into a content-sized row - and since `main` is
+  absolutely positioned and contributes no height, that row collapses to zero,
+  taking the whole subtree with it. The result renders *nothing* while still
+  reporting a correct 120pt composer rect.
+- **No layout overrides on the wrappers.** They aren't needed: once the window is
+  only as tall as the composer, `h-screen` is that height too, so the page's own
+  layout already fits. Forcing `height: auto` on them collapses `main` to 0x0 and
+  every `w-full` descendant with it.
+- The page reports the composer's height over a `WKScriptMessageHandler`, and the panel
+  resizes to `height + 20`. Its bottom edge stays planted (in Cocoa `origin.y` *is* the
+  bottom edge), so it grows upward from its resting position instead of drifting.
+- Mode follows the URL: claude.ai uses `/new` until a conversation exists, then
+  `/chat/<id>`. Because it's a single-page app, the script polls every 400ms rather
+  than relying on load events.
+- The isolation re-runs every tick and clears the chain first. claude.ai is a React
+  app that replaces subtrees, so an element hidden during an earlier pass can end up
+  on the composer's current chain and hide the composer permanently.
+
+**The window frame is the composer's frame.** claude.ai paints its own opaque rounded
+panel inside the composer; left alone, that reads as a box inside a box - two borders,
+two radii, and the blur reduced to a thin gutter. The compact stylesheet strips that
+panel's background, border, radius, and shadow (`.cc-surface`), and `compactPadding` is
+`0`, so what you see is a single translucent bar like the ChatGPT companion.
+
+Two feedback loops had to be closed to make this stable, both of the same shape - an
+effect that changes its own input:
+
+- `.cc-surface` is tagged **once**. The tag goes to the largest element painting a
+  background; making it transparent means it no longer qualifies, so re-evaluating each
+  tick moves the tag away, the background returns, and the composer's height flips
+  between 118 and 120pt forever.
+- `setPanelHeight` ignores changes under `heightTolerance` (5pt). Resizing the window
+  re-lays out the page and can shift the measured height by a point or two. A wrapped
+  line of text is far larger than the deadband, so real growth still gets through.
+
+```
+layout compact: composer 120pt -> panel 140pt
+health check: ... compact=true viewport=140 composer=10..130 fits
+stray elements: no stray elements
+```
+
+## Diagnosing the page
+
+Geometry logs report correct rects **whether or not anything was painted**, so they
+cannot tell a layout bug from a rendering one. These two commands can:
+
+```bash
+./check.sh                              # inspect the live DOM right now
+open -g "claudecompanion://snapshot"    # write what is actually drawn to /tmp
+```
+
+`snapshot` writes two PNGs, which separate the layers:
+
+- `/tmp/cc-web.png` - what the *page* renders (via `WKWebView.takeSnapshot`)
+- `/tmp/cc-window.png` - what the *window* composites, vibrancy included
+
+`check` logs the injected-style state, the composer's full ancestor chain with each
+element's computed size/overflow/position, and any stray chrome floating outside the
+composer (the floating "Open sidebar" trigger is a separate `<aside>` that outlives
+the sidebar panel itself). `CLAUDE_COMPANION_NO_COMPACT=1` runs the app with compact mode off, to get a
+baseline of the page's untouched layout to compare against.
+
+The CSS targets selectors read off the **live authenticated DOM** rather than guesses -
+`WebChrome.probeJS` / `backgroundProbeJS` dump the page's landmarks and computed
+backgrounds to the log when the app runs with `CLAUDE_COMPANION_PROBE=1`. That probe
+showed only `body` (`rgb(21,21,21)`) and `main.dframe-content` paint an opaque backdrop;
+every wrapper between them is already transparent.
+
+Because claude.ai can change its markup at any time, `WebChrome.verifyJS` re-reads the
+computed styles after each load and logs the result, so a silently-failed injection
+shows up as a log line instead of a mysteriously opaque window:
+
+```
+style check: style injected=true body bg=rgba(0, 0, 0, 0) main bg=rgba(0, 0, 0, 0) \
+    sidebar display=none large-opaque-elements=0
+```
+
+`large-opaque-elements` counts anything still painting over 20% of the viewport, which
+is the single most useful signal that translucency has broken. It earned its keep
+immediately: it caught the injection failing completely when a CSS *comment* containing
+backticks terminated the JavaScript template literal the stylesheet was interpolated
+into. The CSS is now passed through `jsStringLiteral` (JSON-encoded) so no CSS content
+can break the injection script.
+
+### Window position
+
+The window rests **horizontally centred on the screen, 20pt above the Dock** - the spot
+macOS companion utilities like Wispr Flow use: close to hand, without covering what
+you're reading.
+
+The window you're working in decides *which display* it appears on, so it follows you
+across monitors - but not where on that display. Placement is the same screen-centred
+spot regardless, which is what makes it predictable rather than jumping around with
+whatever window happens to be focused.
+
+How the active window is found (`ActiveWindow.swift`):
+
+- `CGWindowListCopyWindowInfo` reports window geometry and owning process **without
+  needing the Accessibility or Screen Recording permission** - only window *titles*
+  and *images* are gated by those. The `AXUIElement` API would work too but costs the
+  user a permission prompt.
+- The frontmost app is tracked continuously via
+  `NSWorkspace.didActivateApplicationNotification`, because showing the panel
+  activates *us* - by the time the hot key fires, the app the user was working in is
+  no longer frontmost.
+- Windows belonging to full-screen apps on **other Spaces** are reported at parked
+  coordinates outside the real display arrangement (several unrelated apps share one
+  bogus origin), so any window that doesn't land on a real `NSScreen` is skipped.
+- Core Graphics window bounds are y-down from the primary display's top-left; Cocoa
+  is y-up from its bottom-left, so bounds are converted before use.
+- The result uses the target screen's `visibleFrame`, so the window is always fully
+  visible and above the Dock.
+
+Fallbacks, in order: active window's screen → screen under the pointer → `NSScreen.main`.
+
+Turn this off with **Follow Active Window** in the menu, and the window instead
+reappears wherever you last dragged it (remembered across relaunches, and ignored if
+that spot belongs to a monitor you've since unplugged). **Reset Position** clears it.
+
+### Hot key handling
+
+A combo can only be owned by one process at a time - `RegisterEventHotKey` returns
+`eventHotKeyExistsErr` (-9878) to the loser. The ChatGPT desktop app claims
+**⌥Space**, so the app tries a chain of combos and keeps the first one macOS grants:
+
+⌥Space → ⌘⌥Space → ⌃⌥Space → ⌥C → ⌘⌥C
+
+Whichever it got is shown in the menu-bar menu, and logged at startup.
+
+## Troubleshooting
+
+Check the log first - startup, hot key registration, navigation, and show/hide are
+all recorded:
+
+```bash
+tail -20 ~/Library/Logs/ClaudeCompanion.log
+```
+
+If the shortcut does nothing, the menu-bar menu will tell you which combo is live
+(another app may have taken ⌥Space). `./toggle.sh` always works regardless.
+
+## Known limitations (v0.1 POC)
+
+- **Google "Sign in with Google"** can be blocked inside embedded web views by
+  Google's security checks. Email / magic-link login works reliably.
+- Hot key list and window width are fixed (no settings UI yet).
+- The injected CSS depends on claude.ai's markup (`[data-testid="sidebar"]`,
+  `[data-testid="chat-input"]`, `main.dframe-content`). If Anthropic renames those,
+  the sidebar reappears or compact mode stops working - the `style check` log line is
+  how you'd spot it.
+
+## Bugs found and fixed during the first POC
+
+- **Silent startup failure.** Setting both `.canJoinAllSpaces` and
+  `.moveToActiveSpace` on `collectionBehavior` is invalid (mutually exclusive) and
+  raised an ObjC exception that AppKit swallowed. It aborted panel construction
+  *and* hot key registration, so ⌥Space did nothing. Fixed, plus
+  `NSSetUncaughtExceptionHandler` so this class of failure is never invisible again.
+- **Ignored `OSStatus`.** Hot key registration failures were discarded. Now checked,
+  logged, and recovered from via the fallback chain.
+- **Private-API KVC hack.** `setValue(false, forKey: "drawsBackground")` on
+  `WKWebView` has no such setter; replaced with the public `underPageBackgroundColor`.

@@ -1,0 +1,633 @@
+import AppKit
+import WebKit
+import Carbon.HIToolbox
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var panel: CompanionPanel!
+    private var webView: WKWebView!
+    private var statusItem: NSStatusItem!
+    private var hotKey: GlobalHotKey!
+    private var toggleMenuItem: NSMenuItem!
+    /// Open sign-in popups, retained so they aren't deallocated while visible.
+    private var popups: [PopupWindowController] = []
+
+    // Tunables for the floating window.
+    private let panelSize = NSSize(width: 440, height: 620)
+    /// Gap between the bottom of the window and the top of the Dock. Measured off
+    /// the Wispr Flow panel, which rests ~16pt above it.
+    private let bottomMargin: CGFloat = 20
+    private let cornerRadius: CGFloat = 18
+    private let claudeURL = URL(string: "https://claude.ai/new")!
+    private let savedFrameKey = "panelFrame"
+    private let followKey = "followsActiveWindow"
+
+    /// Current height of the panel. Starts compact-ish and is driven by the page:
+    /// composer-only when there's no conversation, full height once there is.
+    private var contentHeight: CGFloat = 620
+    /// Compact mode is a single rounded bar: the window frame is the composer's
+    /// frame, so there is no gutter between them.
+    private let compactPadding: CGFloat = 0
+    /// Deadband for panel resizing, to stop measure-resize-remeasure oscillation.
+    private let heightTolerance: CGFloat = 5
+
+    /// PID of the most recent app that wasn't us - i.e. what the user is working in.
+    private var lastActiveAppPID: pid_t?
+    private var followMenuItem: NSMenuItem!
+
+    /// When on, the window appears at whatever window the user is working in.
+    private var followsActiveWindow: Bool {
+        get { UserDefaults.standard.object(forKey: followKey) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: followKey) }
+    }
+
+    /// Lets `./toggle.sh` (or any `notifyutil`/osascript caller) toggle the panel
+    /// without a key press. Used for verification and as an escape hatch when
+    /// every candidate hot key is already taken.
+    static let toggleNotification = Notification.Name("co.rockflour.claudecompanion.toggle")
+
+    // A desktop Safari UA. claude.ai gates some flows on a recognised browser;
+    // presenting as Safari avoids "unsupported browser" states in the WKWebView.
+    private let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
+        "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15"
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        Log.info("launching Claude Companion")
+        trackActiveApp()
+        buildStatusItem()
+        Log.info("status item built")
+        buildPanel()
+        Log.info("panel built")
+        registerHotKey()
+        Log.info("hot key setup done")
+
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(toggle),
+            name: Self.toggleNotification,
+            object: nil
+        )
+        // Start hidden; the user summons it with the hot key.
+    }
+
+    // MARK: - Tracking what the user is working in
+
+    /// Remembers the frontmost application as it changes.
+    ///
+    /// This has to be observed continuously rather than read when the hot key
+    /// fires: showing the panel activates *us*, so by then the app the user was
+    /// working in is no longer frontmost.
+    private func trackActiveApp() {
+        let selfPID = ProcessInfo.processInfo.processIdentifier
+
+        if let frontmost = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+           frontmost != selfPID {
+            lastActiveAppPID = frontmost
+        }
+
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey]
+                    as? NSRunningApplication,
+                  app.processIdentifier != selfPID else { return }
+            self?.lastActiveAppPID = app.processIdentifier
+        }
+    }
+
+    // MARK: - Menu bar item
+
+    private func buildStatusItem() {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        if let button = statusItem.button {
+            button.image = NSImage(
+                systemSymbolName: "bubble.left.and.bubble.right",
+                accessibilityDescription: "Claude Companion"
+            )
+            button.image?.isTemplate = true
+        }
+
+        let menu = NSMenu()
+        toggleMenuItem = NSMenuItem(
+            title: "Show / Hide Claude",
+            action: #selector(toggle),
+            keyEquivalent: ""
+        )
+        menu.addItem(toggleMenuItem)
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "New Chat", action: #selector(newChat), keyEquivalent: "")
+        menu.addItem(withTitle: "Reload", action: #selector(reload), keyEquivalent: "")
+        followMenuItem = NSMenuItem(
+            title: "Follow Active Window",
+            action: #selector(toggleFollow),
+            keyEquivalent: ""
+        )
+        followMenuItem.state = followsActiveWindow ? .on : .off
+        menu.addItem(followMenuItem)
+        menu.addItem(
+            withTitle: "Reset Position",
+            action: #selector(resetPosition),
+            keyEquivalent: ""
+        )
+        menu.addItem(
+            withTitle: "Quit Claude Companion",
+            action: #selector(quit),
+            keyEquivalent: "q"
+        )
+        menu.items.forEach { $0.target = self }
+        statusItem.menu = menu
+    }
+
+    /// Reflects the hot key we actually got, so the shortcut is never a mystery.
+    private func updateToggleTitle() {
+        if let label = hotKey.activeCombo?.label {
+            toggleMenuItem.title = "Show / Hide Claude  (\(label))"
+        } else {
+            toggleMenuItem.title = "Show / Hide Claude  (no shortcut available)"
+        }
+    }
+
+    // MARK: - Floating panel + web view
+
+    private func buildPanel() {
+        panel = CompanionPanel(
+            contentRect: NSRect(origin: .zero, size: panelSize),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isFloatingPanel = true
+        panel.level = .floating
+        panel.hidesOnDeactivate = false
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.isMovableByWindowBackground = true
+        // Show on every Space and over full-screen apps.
+        // NB: .canJoinAllSpaces and .moveToActiveSpace are mutually exclusive -
+        // setting both raises an AppKit exception.
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+
+        // Translucent backdrop, clipped to soft corners. The web content above it is
+        // made transparent by injected CSS, so this blur is what you actually see.
+        let container = NSVisualEffectView()
+        container.material = .hudWindow
+        container.blendingMode = .behindWindow
+        container.state = .active
+        container.wantsLayer = true
+        container.layer?.cornerRadius = cornerRadius
+        container.layer?.masksToBounds = true
+        // Hairline edge, as in the ChatGPT companion - without it the translucent
+        // panel has no definition against a light background.
+        container.layer?.borderWidth = 1
+        container.layer?.borderColor = NSColor.white.withAlphaComponent(0.13).cgColor
+
+        let config = WKWebViewConfiguration()
+        // .default() is the persistent store, so the login/session survives relaunches.
+        config.websiteDataStore = .default()
+
+        // Inject the chrome-hiding + transparency stylesheet on every page load.
+        config.userContentController.addUserScript(
+            WKUserScript(
+                source: WebChrome.styleJS,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            )
+        )
+        // Collapse to composer-only when there's no conversation, and report the
+        // height the window should take. Skippable, to get a baseline of the page's
+        // untouched layout when diagnosing.
+        if ProcessInfo.processInfo.environment["CLAUDE_COMPANION_NO_COMPACT"] == nil {
+            config.userContentController.addUserScript(
+                WKUserScript(
+                    source: WebChrome.layoutJS,
+                    injectionTime: .atDocumentEnd,
+                    forMainFrameOnly: true
+                )
+            )
+        } else {
+            Log.info("compact mode disabled for diagnosis")
+        }
+        config.userContentController.add(self, name: "layout")
+
+        webView = WKWebView(frame: container.bounds, configuration: config)
+        webView.customUserAgent = userAgent
+        // Clear, so the vibrancy behind the web view is visible through the page.
+        webView.underPageBackgroundColor = .clear
+
+        // On macOS, a clear `underPageBackgroundColor` is not enough on its own -
+        // WKWebView still paints an opaque backdrop, and `_setDrawsBackground:` is
+        // the only switch that disables it. Private API, so it is probed for first:
+        // if a future macOS drops it we log and stay opaque instead of crashing.
+        let drawsBackground = NSSelectorFromString("_setDrawsBackground:")
+        if webView.responds(to: drawsBackground) {
+            webView.setValue(false, forKey: "drawsBackground")
+            Log.info("web view background disabled - translucency active")
+        } else {
+            Log.warn("_setDrawsBackground: unavailable - panel will be opaque")
+        }
+        webView.uiDelegate = self
+        webView.navigationDelegate = self
+        container.addSubview(webView)
+
+        // Auto Layout rather than autoresizing: `container` starts at zero size, so
+        // an autoresizing mask has no sane ratio to scale the web view from.
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            webView.topAnchor.constraint(equalTo: container.topAnchor),
+            webView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            webView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+        ])
+
+        panel.contentView = container
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(panelMoved),
+            name: NSWindow.didMoveNotification,
+            object: panel
+        )
+
+        webView.load(URLRequest(url: claudeURL))
+    }
+
+    private func positionPanel() {
+        // Following the active window is the whole point of the feature, so it takes
+        // precedence over any position the user has dragged the window to.
+        if followsActiveWindow {
+            panel.setFrame(defaultFrame(), display: true)
+            return
+        }
+
+        if let saved = UserDefaults.standard.string(forKey: savedFrameKey) {
+            let frame = NSRectFromString(saved)
+            // Only reuse it if that area still belongs to a connected screen -
+            // otherwise unplugging a monitor would strand the window off-screen.
+            if !frame.isEmpty,
+               NSScreen.screens.contains(where: { $0.visibleFrame.intersects(frame) }) {
+                panel.setFrame(frame, display: true)
+                return
+            }
+        }
+        panel.setFrame(defaultFrame(), display: true)
+    }
+
+    /// The screen to place the panel on.
+    ///
+    /// The window the user is working in decides *which display* - so the panel
+    /// follows them across monitors - but not where on it. Placement is the same
+    /// screen-centred spot regardless, which is what makes it predictable.
+    private func targetScreen() -> NSScreen? {
+        if followsActiveWindow,
+           let pid = lastActiveAppPID,
+           let (_, screen) = ActiveWindow.focusedWindow(ofPID: pid) {
+            let name = NSRunningApplication(processIdentifier: pid)?.localizedName
+                ?? "pid \(pid)"
+            Log.info("target screen: the one showing \(name)")
+            return screen
+        }
+        // `NSScreen.main` follows the key window, which is unreliable for a
+        // background app, so fall back to the screen under the pointer.
+        let mouse = NSEvent.mouseLocation
+        return NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main
+    }
+
+    /// Horizontally centred on the screen and resting just above the Dock - where
+    /// macOS companion utilities like Wispr Flow sit, close to hand without
+    /// covering what you're reading.
+    private func defaultFrame() -> NSRect {
+        // `visibleFrame` already excludes the Dock and menu bar, so this stays just
+        // above the Dock wherever the Dock happens to live.
+        guard let visible = targetScreen()?.visibleFrame else {
+            return NSRect(origin: .zero, size: panelSize)
+        }
+
+        let x = visible.midX - panelSize.width / 2
+        let highestY = visible.maxY - contentHeight
+        let y = min(visible.minY + bottomMargin, highestY)
+        Log.info("frame on \(Int(visible.width))x\(Int(visible.height)) screen: "
+            + "x=\(Int(x)) y=\(Int(y)) (gap above Dock: \(Int(y - visible.minY)))")
+        return NSRect(x: x, y: y, width: panelSize.width, height: contentHeight)
+    }
+
+    @objc private func toggleFollow() {
+        followsActiveWindow.toggle()
+        followMenuItem.state = followsActiveWindow ? .on : .off
+        Log.info("follow active window: \(followsActiveWindow)")
+    }
+
+    @objc private func resetPosition() {
+        UserDefaults.standard.removeObject(forKey: savedFrameKey)
+        panel.setFrame(defaultFrame(), display: true)
+        Log.info("position reset to default")
+    }
+
+    /// Remembers a window the user has dragged, so it reappears where they left it.
+    @objc private func panelMoved() {
+        UserDefaults.standard.set(NSStringFromRect(panel.frame), forKey: savedFrameKey)
+    }
+
+    // MARK: - Hot key
+
+    private func registerHotKey() {
+        hotKey = GlobalHotKey()
+        // ⌥Space is preferred, but the ChatGPT desktop app claims it system-wide.
+        // Fall back through nearby combos so there is always a working shortcut.
+        hotKey.registerFirstAvailable([
+            .optionSpace,
+            .commandOptionSpace,
+            .controlOptionSpace,
+            .optionC,
+            .commandOptionC,
+        ])
+        hotKey.onPress = { [weak self] in self?.toggle() }
+        updateToggleTitle()
+    }
+
+    // MARK: - Actions
+
+    @objc private func toggle() {
+        if panel.isVisible {
+            Log.info("hiding panel")
+            panel.orderOut(nil)
+        } else {
+            Log.info("showing panel")
+            positionPanel()
+            NSApp.activate(ignoringOtherApps: true)
+            panel.makeKeyAndOrderFront(nil)
+            // Focus the web content so typing goes straight into Claude.
+            panel.makeFirstResponder(webView)
+            nudgeRepaint()
+        }
+    }
+
+    /// Handles `claudecompanion://toggle` (and `://show`, `://hide`), so the window
+    /// can be summoned from Raycast, Shortcuts, or the CLI as well as the hot key.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            switch url.host ?? url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) {
+            case "show": if !panel.isVisible { toggle() }
+            case "hide": if panel.isVisible { toggle() }
+            case "check": runHealthCheck()
+            case "snapshot": captureSnapshots()
+            default: toggle()
+            }
+        }
+    }
+
+    @objc private func reload() {
+        webView.reload()
+    }
+
+    @objc private func newChat() {
+        goHome()
+    }
+
+    /// Writes what the app is actually drawing to `/tmp`, separating the two layers:
+    /// what the *page* renders, and what the *window* composites. Geometry logs
+    /// report correct rects whether or not anything was painted, so this is the only
+    /// way to tell a layout bug from a rendering one.
+    private func captureSnapshots() {
+        let config = WKSnapshotConfiguration()
+        config.rect = webView.bounds
+        webView.takeSnapshot(with: config) { image, error in
+            if let error {
+                Log.error("web snapshot failed: \(error.localizedDescription)")
+                return
+            }
+            guard let image, let png = Self.png(from: image) else {
+                Log.error("web snapshot produced no image")
+                return
+            }
+            try? png.write(to: URL(fileURLWithPath: "/tmp/cc-web.png"))
+            Log.info("web snapshot: \(Int(image.size.width))x\(Int(image.size.height))")
+        }
+
+        guard let view = panel.contentView,
+              let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        if let png = rep.representation(using: .png, properties: [:]) {
+            try? png.write(to: URL(fileURLWithPath: "/tmp/cc-window.png"))
+            Log.info("window snapshot: \(Int(view.bounds.width))x\(Int(view.bounds.height))")
+        }
+    }
+
+    private static func png(from image: NSImage) -> Data? {
+        guard let tiff = image.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff) else { return nil }
+        return rep.representation(using: .png, properties: [:])
+    }
+
+    /// Forces the web view to repaint when the panel is summoned.
+    ///
+    /// WebKit throttles rendering for windows that have been ordered out, and can
+    /// come back with a blank frame even though the DOM is laid out correctly -
+    /// a failure that geometry logging cannot detect, because the rects are fine.
+    private func nudgeRepaint() {
+        webView.needsDisplay = true
+        // Reading offsetHeight forces a synchronous layout, prompting a fresh frame.
+        webView.evaluateJavaScript("void document.body.offsetHeight") { _, _ in }
+    }
+
+    /// Inspects the live page right now, rather than only at load time - the state
+    /// that matters when something has gone blank after a re-render.
+    private func runHealthCheck() {
+        webView.evaluateJavaScript(WebChrome.verifyJS) { result, error in
+            if let error {
+                Log.error("health check failed: \(error.localizedDescription)")
+            } else if let text = result as? String {
+                Log.info("health check: \(text)")
+            }
+        }
+        webView.evaluateJavaScript(WebChrome.strayProbeJS) { result, _ in
+            if let text = result as? String { Log.info("stray elements:\n\(text)") }
+        }
+        webView.evaluateJavaScript(WebChrome.chainDiagJS) { result, _ in
+            if let text = result as? String { Log.info("composer chain:\n\(text)") }
+        }
+        webView.evaluateJavaScript("location.pathname") { result, _ in
+            Log.info("health check path: \(result as? String ?? "?") "
+                + "panel=\(Int(self.panel.frame.height))pt visible=\(self.panel.isVisible)")
+        }
+    }
+
+    /// Returns the main frame to Claude. Also the recovery path when a sign-in
+    /// flow leaves the web view somewhere unhelpful.
+    private func goHome() {
+        webView.load(URLRequest(url: claudeURL))
+    }
+
+    @objc private func quit() {
+        NSApp.terminate(nil)
+    }
+}
+
+// MARK: - WKScriptMessageHandler
+
+extension AppDelegate: WKScriptMessageHandler {
+    /// Receives the page's layout state and resizes the panel to match: composer
+    /// height when there's no conversation, full height once there is.
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        guard message.name == "layout",
+              let body = message.body as? [String: Any],
+              let mode = body["mode"] as? String else { return }
+        let composerHeight = (body["height"] as? NSNumber)?.doubleValue ?? 0
+
+        if mode == "diag" {
+            Log.warn("composer not visible: \(body["detail"] as? String ?? "?")")
+            return
+        }
+
+        let target: CGFloat
+        if mode == "compact" {
+            guard composerHeight > 20 else {
+                // A collapsed measurement is a bug, not a reason to jump to full
+                // height - keep what we have and let the diagnostic explain it.
+                Log.warn("ignoring compact height \(Int(composerHeight))pt")
+                return
+            }
+            // Clamped: a mis-measured composer shouldn't produce a slit or a
+            // full-screen panel.
+            target = min(max(CGFloat(composerHeight) + compactPadding, 80), 320)
+        } else {
+            target = panelSize.height
+        }
+
+        Log.info("layout \(mode): composer \(Int(composerHeight))pt -> panel \(Int(target))pt")
+        setPanelHeight(target)
+    }
+
+    /// Resizes the panel while keeping its bottom edge planted, so it grows upward
+    /// from its resting position rather than drifting.
+    ///
+    /// Changes below `heightTolerance` are ignored. Resizing the window re-lays out
+    /// the page, which can shift the composer's measured height by a point or two -
+    /// enough to oscillate forever without a deadband. A wrapped line of text adds
+    /// far more than this, so real growth still gets through.
+    private func setPanelHeight(_ height: CGFloat) {
+        guard abs(contentHeight - height) > heightTolerance else { return }
+        contentHeight = height
+        guard abs(panel.frame.height - height) > 1 else { return }
+
+        var frame = panel.frame
+        // In Cocoa, origin.y *is* the bottom edge - leaving it alone anchors the
+        // bottom and lets the window extend upward.
+        frame.size.height = height
+        panel.setFrame(frame, display: true)
+    }
+}
+
+// MARK: - WKUIDelegate
+
+extension AppDelegate: WKUIDelegate {
+    /// Gives `window.open` requests (OAuth sign-in) a real window of their own.
+    ///
+    /// Returning a new web view built from `configuration` is what preserves the
+    /// `window.opener` link. Loading the request into the main frame instead would
+    /// destroy the claude.ai page that started the flow.
+    func webView(
+        _ webView: WKWebView,
+        createWebViewWith configuration: WKWebViewConfiguration,
+        for navigationAction: WKNavigationAction,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        Log.info("popup requested: \(navigationAction.request.url?.host ?? "?")")
+        let popup = PopupWindowController(
+            configuration: configuration,
+            userAgent: userAgent,
+            onClose: { [weak self] controller in self?.popupClosed(controller) }
+        )
+        popups.append(popup)
+        popup.present()
+        // WebKit loads the request into the returned web view itself.
+        return popup.webView
+    }
+
+    private func popupClosed(_ controller: PopupWindowController) {
+        popups.removeAll { $0 === controller }
+
+        // Deliberately do NOT reload the main frame here.
+        //
+        // "Sign in with Google" (Google Identity Services) hands the credential to
+        // the opener via postMessage, and claude.ai's own JavaScript then exchanges
+        // it for a session and navigates itself. Reloading at popup-close time
+        // destroys that page mid-exchange and bounces the user back to /login.
+        if let host = webView.url?.host, !host.contains("claude.ai") {
+            Log.info("popup done - main frame stranded on \(host), returning to claude.ai")
+            goHome()
+        } else {
+            Log.info("popup done - letting claude.ai finish the sign-in itself")
+        }
+    }
+}
+
+// MARK: - WKNavigationDelegate
+
+extension AppDelegate: WKNavigationDelegate {
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard let url = webView.url else { return }
+        Log.info("loaded \(url.host ?? "?")\(url.path)")
+
+        // Google's GSI helper pages render blank and are a dead end when they land
+        // in the main frame. Recover instead of leaving the user staring at white.
+        if url.host?.contains("accounts.google.") == true, url.path.contains("/gsi/") {
+            Log.warn("main frame hit a blank Google GSI page - returning to claude.ai")
+            goHome()
+            return
+        }
+
+        guard url.host?.contains("claude.ai") == true else { return }
+
+        // Confirm the stylesheet landed. claude.ai's markup can change under us, so a
+        // silently-failed injection should show up in the log rather than as a
+        // mysteriously opaque window.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            self?.webView.evaluateJavaScript(WebChrome.verifyJS) { result, error in
+                if let error {
+                    Log.error("style check failed: \(error.localizedDescription)")
+                } else if let text = result as? String {
+                    Log.info("style check: \(text)")
+                }
+            }
+        }
+
+        guard ProcessInfo.processInfo.environment["CLAUDE_COMPANION_PROBE"] != nil else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            self?.webView.evaluateJavaScript(WebChrome.probeJS) { result, _ in
+                if let text = result as? String { Log.info("DOM probe:\n\(text)") }
+            }
+            self?.webView.evaluateJavaScript(WebChrome.backgroundProbeJS) { result, _ in
+                if let text = result as? String { Log.info("background probe:\n\(text)") }
+            }
+            self?.webView.evaluateJavaScript(WebChrome.opaqueProbeJS) { result, _ in
+                if let text = result as? String { Log.info("opaque probe:\n\(text)") }
+            }
+            self?.webView.evaluateJavaScript(WebChrome.structureProbeJS) { result, _ in
+                if let text = result as? String { Log.info("structure probe:\n\(text)") }
+            }
+            self?.webView.evaluateJavaScript(WebChrome.composerProbeJS) { result, _ in
+                if let text = result as? String { Log.info("composer probe:\n\(text)") }
+            }
+            self?.webView.evaluateJavaScript(WebChrome.hooksProbeJS) { result, _ in
+                if let text = result as? String { Log.info("hooks probe:\n\(text)") }
+            }
+        }
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        Log.error("navigation failed: \(error.localizedDescription)")
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        didFailProvisionalNavigation navigation: WKNavigation!,
+        withError error: Error
+    ) {
+        Log.error("navigation failed: \(error.localizedDescription)")
+    }
+}
