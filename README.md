@@ -77,8 +77,17 @@ bindable from Raycast, Shortcuts, or Alfred.
 The panel is a translucent, single-conversation view rather than the full claude.ai app:
 
 - An `NSVisualEffectView` (`.hudWindow`, `.behindWindow`) provides the macOS blur,
-  with an 18pt corner radius and a hairline white border so the panel still has
-  definition against a light backdrop.
+  with a 22pt continuous ("squircle") corner radius and a hairline white border so the
+  panel still has definition against a light backdrop.
+- **The blur is clipped with `maskImage`, not just a layer `cornerRadius`.** A layer
+  radius rounds the view's *contents*; the backdrop blur keeps sampling the full square
+  window bounds, which paints a bright halo around the panel - very visible over a light
+  background. `maskImage` masks the effect itself. The mask is a small resizable image
+  with cap insets, so one image fits any panel size.
+- That halo is invisible to every form of capture: `cacheDisplay` renders the hierarchy
+  offscreen, and even `CGWindowListCreateImage` of the live window reports `alpha 0`
+  there, because the blur is derived from a backdrop the capture doesn't contain. It can
+  only be seen on screen.
 - Three separate things paint an opaque backdrop, and **all** of them have to be
   cleared or the panel stays solid:
   1. `webView.underPageBackgroundColor = .clear`.

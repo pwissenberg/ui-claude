@@ -191,6 +191,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // corner against a light backdrop.
         container.layer?.cornerCurve = .continuous
         container.layer?.masksToBounds = true
+        // The layer mask above rounds the *contents* only - the backdrop blur keeps
+        // sampling the full square window bounds, which shows as a bright halo
+        // around the panel over a light background. maskImage clips the effect.
+        container.maskImage = .roundedMask(radius: cornerRadius)
         // Hairline edge, as in the ChatGPT companion - without it the translucent
         // panel has no definition against a light background.
         container.layer?.borderWidth = 1
@@ -612,6 +616,9 @@ extension AppDelegate: WKScriptMessageHandler {
         // bottom and lets the window extend upward.
         frame.size.height = height
         panel.setFrame(frame, display: true)
+        // The shadow is cached from the old shape, so it has to be recomputed or it
+        // outlines the previous size.
+        panel.invalidateShadow()
     }
 }
 
