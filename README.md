@@ -158,7 +158,17 @@ open -g "claudecompanion://snapshot"    # write what is actually drawn to /tmp
 `snapshot` writes two PNGs, which separate the layers:
 
 - `/tmp/cc-web.png` - what the *page* renders (via `WKWebView.takeSnapshot`)
-- `/tmp/cc-window.png` - what the *window* composites, vibrancy included
+- `/tmp/cc-window.png` - the view hierarchy drawn offscreen (`cacheDisplay`)
+
+Neither shows what the **window server** actually composites, so neither can reveal
+edge or corner artefacts - `cacheDisplay` renders the same picture whether or not the
+defect is present. `claudecompanion://screengrab` captures the real window instead:
+
+- `/tmp/cc-screen.png` - the window's own pixels
+- `/tmp/cc-screen-framed.png` - including shadow and framing
+
+Sample the corner pixels rather than trusting the image: transparency renders as white
+in most viewers, which looks identical to a white artefact.
 
 `check` logs the injected-style state, the composer's full ancestor chain with each
 element's computed size/overflow/position, and any stray chrome floating outside the

@@ -17,7 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Gap between the bottom of the window and the top of the Dock. Measured off
     /// the Wispr Flow panel, which rests ~16pt above it.
     private let bottomMargin: CGFloat = 20
-    private let cornerRadius: CGFloat = 18
+    private let cornerRadius: CGFloat = 22
     private let claudeURL = URL(string: "https://claude.ai/new")!
     private let savedFrameKey = "panelFrame"
     private let followKey = "followsActiveWindow"
@@ -186,6 +186,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         container.state = .active
         container.wantsLayer = true
         container.layer?.cornerRadius = cornerRadius
+        // Continuous ("squircle") curvature, as macOS uses for its own panels. A
+        // circular radius meets the straight edge abruptly, which reads as a hard
+        // corner against a light backdrop.
+        container.layer?.cornerCurve = .continuous
         container.layer?.masksToBounds = true
         // Hairline edge, as in the ChatGPT companion - without it the translucent
         // panel has no definition against a light background.
@@ -236,6 +240,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             Log.warn("_setDrawsBackground: unavailable - panel will be opaque")
         }
+        // Round the web view's own layer as well as the container's. WKWebView
+        // renders out of process and composites its own layer, which the parent's
+        // corner mask does not reliably clip - leaving its square backing visible
+        // as light wedges in the four corners.
+
+        // Round the web view's own layer as well as the container's. WKWebView
+        // renders out of process and composites its own layer, which the parent's
+        // corner mask does not reliably clip - leaving its square backing visible
+        // as light wedges in the four corners.
+        webView.wantsLayer = true
+        webView.layer?.cornerRadius = cornerRadius
+        webView.layer?.cornerCurve = .continuous
+        webView.layer?.masksToBounds = true
+
         webView.uiDelegate = self
         webView.navigationDelegate = self
         container.addSubview(webView)
@@ -413,6 +431,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case "hide": if panel.isVisible { toggle() }
             case "check": runHealthCheck()
             case "snapshot": captureSnapshots()
+            case "screengrab": captureOnScreen()
             case "login-item": toggleLoginItem()
             default: toggle()
             }
@@ -453,6 +472,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let png = rep.representation(using: .png, properties: [:]) {
             try? png.write(to: URL(fileURLWithPath: "/tmp/cc-window.png"))
             Log.info("window snapshot: \(Int(view.bounds.width))x\(Int(view.bounds.height))")
+        }
+    }
+
+    /// Captures the panel as the window server actually composites it, including
+    /// the vibrancy and the out-of-process web content.
+    ///
+    /// `cacheDisplay` renders the view hierarchy offscreen and misses both, so it
+    /// cannot show corner artefacts; this can.
+    private func captureOnScreen() {
+        let windowID = CGWindowID(panel.windowNumber)
+        guard panel.isVisible, panel.windowNumber > 0 else {
+            Log.warn("screengrab: panel is not on screen")
+            return
+        }
+        // Two variants: without framing (the window's own pixels) and with it
+        // (shadow and any backing the window server draws around them).
+        let variants: [(String, CGWindowImageOption)] = [
+            ("/tmp/cc-screen.png", [.boundsIgnoreFraming, .bestResolution]),
+            ("/tmp/cc-screen-framed.png", [.bestResolution]),
+        ]
+        for (path, options) in variants {
+            guard let image = CGWindowListCreateImage(
+                .null, [.optionIncludingWindow], windowID, options
+            ) else {
+                Log.error("screengrab: capture returned nothing for \(path)")
+                continue
+            }
+            let rep = NSBitmapImageRep(cgImage: image)
+            if let data = rep.representation(using: .png, properties: [:]) {
+                try? data.write(to: URL(fileURLWithPath: path))
+                Log.info("screengrab: \(image.width)x\(image.height) -> \(path)")
+            }
         }
     }
 
