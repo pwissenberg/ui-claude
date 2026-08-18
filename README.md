@@ -14,13 +14,34 @@ persistent cookie store, you log in once with your normal account and stay logge
 No Xcode required - just the Command Line Tools Swift toolchain.
 
 ```bash
-./build.sh --run     # build the .app bundle and (re)launch it
-./build.sh           # build only, into ./build/Claude Companion.app
+./build.sh --install # build, install to /Applications, and launch it there
+./build.sh --run     # build and (re)launch from ./build.noindex, without installing
+./build.sh           # build only
 ```
 
-The app has **no Dock icon**; look for the 🗨️ icon in the menu bar for
-Show/Hide, Reload, and Quit. The menu item always shows the shortcut that is
-actually active.
+`--install` is what makes it a real app: `/Applications` is the only location Spotlight
+indexes by default, and the only one `SMAppService` will register a login item from. It
+quits any running copy first - two instances would fight over the ⌥Space hot key, and
+only one can win it - and re-signs after copying, since that invalidates the ad-hoc
+signature.
+
+The build directory is named `build.noindex` because macOS skips indexing directories
+with that suffix. Otherwise Spotlight offers two identical "Claude Companion" entries
+and you can't tell which one you're launching.
+
+### Starting and stopping
+
+| | |
+|--|--|
+| Start | Spotlight → "Claude Companion", or `open -a "Claude Companion"` |
+| Stop | menu bar 🗨️ → **Quit**, or `pkill -f "MacOS/ClaudeCompanion"` |
+| Start automatically at login | menu bar 🗨️ → **Start at Login** |
+
+The app has **no Dock icon** and no ⌘Q, by design - it's a background companion, so
+everything lives in the menu-bar menu. **Start at Login** uses `SMAppService`, which
+needs no helper bundle or permission prompt; if registration fails it says so in an
+alert rather than silently doing nothing, and points at System Settings → General →
+Login Items.
 
 ## Usage
 

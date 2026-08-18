@@ -1,6 +1,7 @@
 import AppKit
 import WebKit
 import Carbon.HIToolbox
+import ServiceManagement
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: CompanionPanel!
@@ -33,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// PID of the most recent app that wasn't us - i.e. what the user is working in.
     private var lastActiveAppPID: pid_t?
     private var followMenuItem: NSMenuItem!
+    private var loginItemMenuItem: NSMenuItem!
 
     /// When on, the window appears at whatever window the user is working in.
     private var followsActiveWindow: Bool {
@@ -125,6 +127,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         followMenuItem.state = followsActiveWindow ? .on : .off
         menu.addItem(followMenuItem)
+        loginItemMenuItem = NSMenuItem(
+            title: "Start at Login",
+            action: #selector(toggleLoginItem),
+            keyEquivalent: ""
+        )
+        menu.addItem(loginItemMenuItem)
         menu.addItem(
             withTitle: "Reset Position",
             action: #selector(resetPosition),
@@ -137,6 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         menu.items.forEach { $0.target = self }
         statusItem.menu = menu
+        updateLoginItemState()
     }
 
     /// Reflects the hot key we actually got, so the shortcut is never a mystery.
@@ -312,6 +321,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return NSRect(x: x, y: y, width: panelSize.width, height: contentHeight)
     }
 
+    /// Registers the app to launch at login.
+    ///
+    /// `SMAppService` needs no helper bundle or permission prompt, but it does
+    /// require the app to be installed in /Applications and properly signed - so a
+    /// failure is reported rather than swallowed, with the manual route as a
+    /// fallback.
+    @objc private func toggleLoginItem() {
+        let service = SMAppService.mainApp
+        do {
+            if service.status == .enabled {
+                try service.unregister()
+                Log.info("start at login: disabled")
+            } else {
+                try service.register()
+                Log.info("start at login: enabled")
+            }
+        } catch {
+            Log.error("start at login failed: \(error.localizedDescription)")
+            let alert = NSAlert()
+            alert.messageText = "Couldn't change the login item"
+            alert.informativeText = error.localizedDescription
+                + "\n\nYou can set this yourself in System Settings → General → "
+                + "Login Items, under \"Open at Login\"."
+            alert.runModal()
+        }
+        updateLoginItemState()
+    }
+
+    private func updateLoginItemState() {
+        loginItemMenuItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
+    }
+
     @objc private func toggleFollow() {
         followsActiveWindow.toggle()
         followMenuItem.state = followsActiveWindow ? .on : .off
@@ -372,6 +413,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case "hide": if panel.isVisible { toggle() }
             case "check": runHealthCheck()
             case "snapshot": captureSnapshots()
+            case "login-item": toggleLoginItem()
             default: toggle()
             }
         }

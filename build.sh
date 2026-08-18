@@ -3,8 +3,9 @@
 # Builds "Claude Companion.app" from the Swift package - no Xcode required,
 # just the Command Line Tools Swift toolchain.
 #
-#   ./build.sh          build the .app bundle into ./build
-#   ./build.sh --run    build, then (re)launch the app
+#   ./build.sh            build the .app bundle into ./build.noindex
+#   ./build.sh --run      build, then (re)launch it from ./build.noindex
+#   ./build.sh --install  build, install to /Applications, and launch it there
 #
 set -euo pipefail
 
@@ -14,7 +15,7 @@ EXECUTABLE="ClaudeCompanion"
 VERSION="0.1.0"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BUILD_DIR="$ROOT/build"
+BUILD_DIR="$ROOT/build.noindex"
 APP_DIR="$BUILD_DIR/$APP_NAME.app"
 CONTENTS="$APP_DIR/Contents"
 
@@ -60,12 +61,43 @@ codesign --force --deep --sign - "$APP_DIR"
 
 echo "==> Done: $APP_DIR"
 
-if [[ "${1:-}" == "--run" ]]; then
-    echo "==> Relaunching…"
-    # Quit any running instance first so the new build takes over.
+# Any running copy has to go before we replace or relaunch it - two instances would
+# fight over the ⌥Space hot key, and only one of them can win it.
+quit_running() {
     osascript -e "tell application \"$APP_NAME\" to quit" >/dev/null 2>&1 || true
     pkill -f "$APP_NAME.app/Contents/MacOS/$EXECUTABLE" >/dev/null 2>&1 || true
     sleep 0.5
+}
+
+case "${1:-}" in
+--run)
+    echo "==> Relaunching…"
+    quit_running
     open "$APP_DIR"
     echo "==> Launched. Press ⌥Space to summon Claude."
-fi
+    ;;
+--install)
+    # /Applications is the only location Spotlight indexes by default, and the only
+    # one SMAppService will register a login item from.
+    DEST="/Applications"
+    if [[ ! -w "$DEST" ]]; then
+        DEST="$HOME/Applications"
+        mkdir -p "$DEST"
+        echo "==> /Applications is not writable; installing to $DEST instead"
+    fi
+
+    echo "==> Installing to $DEST…"
+    quit_running
+    rm -rf "$DEST/$APP_NAME.app"
+    cp -R "$APP_DIR" "$DEST/"
+    # Re-sign in place: copying can invalidate the ad-hoc signature.
+    codesign --force --sign - "$DEST/$APP_NAME.app"
+    # Nudge Spotlight and Launch Services to notice it immediately.
+    mdimport "$DEST/$APP_NAME.app" >/dev/null 2>&1 || true
+
+    open "$DEST/$APP_NAME.app"
+    echo "==> Installed and launched from $DEST"
+    echo "==> Find it in Spotlight as \"$APP_NAME\". Press ⌥Space to summon Claude."
+    echo "==> To start it automatically, use \"Start at Login\" in the menu-bar menu."
+    ;;
+esac
