@@ -474,6 +474,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case "show": if !panel.isVisible { toggle() }
             case "hide": if panel.isVisible { toggle() }
             case "check": runHealthCheck()
+            case "test-paste": testPaste()
             case "snapshot": captureSnapshots()
             case "screengrab": captureOnScreen()
             case "login-item": toggleLoginItem()
@@ -555,6 +556,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let tiff = image.tiffRepresentation,
               let rep = NSBitmapImageRep(data: tiff) else { return nil }
         return rep.representation(using: .png, properties: [:])
+    }
+
+    /// Synthesises a real Cmd-V and reports whether it reached the page.
+    ///
+    /// Exercises the same path a keystroke takes - the window's key-equivalent
+    /// handling - rather than calling `paste:` directly, which would bypass the part
+    /// that was actually broken.
+    private func testPaste() {
+        // Focus the composer first: `paste:` only inserts into a focused editable, so
+        // without focus the action dispatches successfully and still does nothing -
+        // which looks like a pass while proving nothing. evaluateJavaScript is
+        // asynchronous, so the keystroke has to wait for its completion.
+        webView.evaluateJavaScript(
+            "var i = document.querySelector('[data-testid=\"chat-input\"]'); if (i) i.focus(); !!i"
+        ) { [weak self] focused, _ in
+            Log.info("test paste: composer focused = \(focused as? Bool ?? false)")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                self?.sendPasteKeystroke()
+            }
+        }
+    }
+
+    private func sendPasteKeystroke() {
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: .command,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: panel.windowNumber,
+            context: nil,
+            characters: "v",
+            charactersIgnoringModifiers: "v",
+            isARepeat: false,
+            keyCode: 9
+        ) else {
+            Log.error("test paste: could not synthesise the event")
+            return
+        }
+
+        let handled = panel.performKeyEquivalent(with: event)
+        Log.info("test paste: key equivalent handled = \(handled), "
+            + "first responder = \(type(of: panel.firstResponder))")
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            self?.webView.evaluateJavaScript(
+                "(document.querySelector('[data-testid=\"chat-input\"]') || {}).textContent || ''"
+            ) { result, _ in
+                Log.info("test paste: composer now contains '\(result as? String ?? "?")'")
+            }
+        }
     }
 
     /// Forces the web view to repaint when the panel is summoned.

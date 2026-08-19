@@ -38,7 +38,14 @@ and you can't tell which one you're launching.
 | Start automatically at login | menu bar 🗨️ → **Start at Login** |
 
 The app has **no Dock icon** and no ⌘Q, by design - it's a background companion, so
-everything lives in the menu-bar menu. **Start at Login** uses `SMAppService`, which
+everything lives in the menu-bar menu.
+
+**Editing shortcuts are handled by the window itself.** AppKit turns ⌘V into a `paste:`
+action by matching it against the Edit menu's key equivalents; an app with no main menu
+never gets that match, so ⌘V, ⌘C, ⌘X, ⌘A and ⌘Z are silently dropped - you can type
+into Claude but not paste. `CompanionPanel.performKeyEquivalent` dispatches those
+actions down the responder chain instead, which needs no menu to exist.
+`claudecompanion://test-paste` exercises the real keystroke path end to end. **Start at Login** uses `SMAppService`, which
 needs no helper bundle or permission prompt; if registration fails it says so in an
 alert rather than silently doing nothing, and points at System Settings → General →
 Login Items.

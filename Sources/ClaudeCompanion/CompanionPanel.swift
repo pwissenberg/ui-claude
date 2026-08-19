@@ -36,4 +36,40 @@ final class CompanionPanel: NSPanel {
     override func cancelOperation(_ sender: Any?) {
         orderOut(nil)
     }
+
+    /// Makes the standard editing shortcuts work.
+    ///
+    /// AppKit turns ⌘V into a `paste:` action by matching it against the Edit menu's
+    /// key equivalents. A menu-bar-only app has no main menu, so that match never
+    /// happens and the keystroke is simply dropped - you can type into Claude but
+    /// not paste, copy, or select all. Dispatching the actions down the responder
+    /// chain ourselves restores them without needing a menu to exist.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags.contains(.command) else {
+            return super.performKeyEquivalent(with: event)
+        }
+        // Anything with extra modifiers (⌘⌥, ⌘⌃) is not one of these shortcuts.
+        guard flags.subtracting([.command, .shift]).isEmpty else {
+            return super.performKeyEquivalent(with: event)
+        }
+
+        let action: Selector?
+        switch event.charactersIgnoringModifiers?.lowercased() {
+        case "x": action = #selector(NSText.cut(_:))
+        case "c": action = #selector(NSText.copy(_:))
+        case "v": action = flags.contains(.shift)
+            // ⌘⇧V is paste-and-match-style, which WebKit maps to pasting as plain text.
+            ? Selector(("pasteAsPlainText:"))
+            : #selector(NSText.paste(_:))
+        case "a": action = #selector(NSText.selectAll(_:))
+        case "z": action = flags.contains(.shift) ? Selector(("redo:")) : Selector(("undo:"))
+        default: action = nil
+        }
+
+        if let action, NSApp.sendAction(action, to: nil, from: self) {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 }
