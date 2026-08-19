@@ -51,6 +51,52 @@ actions down the responder chain instead, which needs no menu to exist.
 prompt; if registration fails it says so in an alert rather than silently doing
 nothing, and points at System Settings → General → Login Items.
 
+## Distributing via Homebrew
+
+A Mac app is distributed as a **Cask**, which needs three things: a downloadable
+artefact at a stable URL, a cask definition, and a tap to serve it from.
+
+```bash
+./build.sh --dist     # writes dist/ClaudeCompanion-<version>.zip + dist/claude-companion.rb
+```
+
+The zip is built with `ditto`, not `zip`, because that preserves the bundle's symlinks,
+extended attributes and code signature - a plain zip mangles them and the app fails to
+launch. The cask is generated with the freshly computed sha256, so it can never drift
+from the artefact it describes.
+
+Then:
+
+```bash
+gh release create v0.1.0 dist/ClaudeCompanion-0.1.0.zip --repo pwissenberg/ui-claude \
+    --title "Claude Companion 0.1.0" --notes "..."
+
+# In a tap repo named homebrew-tap:
+cp dist/claude-companion.rb Casks/claude-companion.rb
+
+brew install --cask pwissenberg/tap/claude-companion
+```
+
+### Two things that have to be settled first
+
+**The repository is private.** Homebrew downloads the release asset anonymously, so the
+repo (or at least the asset) has to be publicly reachable. A release asset on a private
+repo needs a token, which a cask cannot supply.
+
+**The app is ad-hoc signed** (`Signature=adhoc`, no Team ID). That is fine for a locally
+built copy, but macOS quarantines anything *downloaded*, and Gatekeeper refuses an
+ad-hoc-signed bundle with "the app is damaged and can't be opened". Two ways out:
+
+- **Sign and notarise properly** - an Apple Developer ID ($99/yr), then
+  `codesign --sign "Developer ID Application: ..." --options runtime` and
+  `xcrun notarytool submit`. This is the only route where the app just opens.
+- **Have users bypass quarantine** - `brew install --cask --no-quarantine ...`, or
+  `xattr -dr com.apple.quarantine "/Applications/Claude Companion.app"`. Free, but every
+  user has to know to do it, and it trains people to disarm a security check.
+
+Note also that `homebrew/cask` itself has notability requirements a brand-new repository
+will not meet, so a personal tap is the practical route either way.
+
 ## Usage
 
 | Action | How |

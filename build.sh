@@ -6,6 +6,7 @@
 #   ./build.sh            build the .app bundle into ./build.noindex
 #   ./build.sh --run      build, then (re)launch it from ./build.noindex
 #   ./build.sh --install  build, install to /Applications, and launch it there
+#   ./build.sh --dist     build, package a release zip, and generate the Homebrew cask
 #
 set -euo pipefail
 
@@ -99,5 +100,64 @@ case "${1:-}" in
     echo "==> Installed and launched from $DEST"
     echo "==> Find it in Spotlight as \"$APP_NAME\". Press ⌥Space to summon Claude."
     echo "==> To start it automatically, use \"Start at Login\" in the menu-bar menu."
+    ;;
+--dist)
+    # Release artefact for Homebrew Cask, plus the cask that points at it.
+    DIST_DIR="$ROOT/dist"
+    ZIP_NAME="ClaudeCompanion-$VERSION.zip"
+    ZIP_PATH="$DIST_DIR/$ZIP_NAME"
+    TAG="v$VERSION"
+
+    mkdir -p "$DIST_DIR"
+    rm -f "$ZIP_PATH"
+    echo "==> Packaging $ZIP_NAME…"
+    # ditto, not zip: it preserves the bundle's symlinks, extended attributes and
+    # code signature, which a plain zip mangles.
+    ditto -c -k --keepParent "$APP_DIR" "$ZIP_PATH"
+
+    SHA="$(shasum -a 256 "$ZIP_PATH" | awk '{print $1}')"
+    SIZE="$(du -h "$ZIP_PATH" | awk '{print $1}')"
+    echo "==> $ZIP_PATH ($SIZE)"
+    echo "==> sha256 $SHA"
+
+    cat > "$DIST_DIR/claude-companion.rb" <<CASK
+cask "claude-companion" do
+  version "$VERSION"
+  sha256 "$SHA"
+
+  url "https://github.com/pwissenberg/ui-claude/releases/download/v#{version}/ClaudeCompanion-#{version}.zip"
+  name "$APP_NAME"
+  desc "Floating companion window for Claude.ai, summoned with a hot key"
+  homepage "https://github.com/pwissenberg/ui-claude"
+
+  livecheck do
+    url :url
+    strategy :github_latest
+  end
+
+  depends_on macos: ">= :ventura"
+
+  app "$APP_NAME.app"
+
+  zap trash: [
+    "~/Library/Caches/$BUNDLE_ID",
+    "~/Library/HTTPStorages/$BUNDLE_ID.binarycookies",
+    "~/Library/Logs/ClaudeCompanion.log",
+    "~/Library/Preferences/$BUNDLE_ID.plist",
+    "~/Library/WebKit/$BUNDLE_ID",
+  ]
+end
+CASK
+
+    echo "==> Cask written: $DIST_DIR/claude-companion.rb"
+    echo
+    echo "Next steps (see README, \"Distributing via Homebrew\"):"
+    echo "  1. gh release create $TAG \"$ZIP_PATH\" --repo pwissenberg/ui-claude \\"
+    echo "       --title \"$APP_NAME $VERSION\" --notes \"…\""
+    echo "  2. Copy dist/claude-companion.rb into a tap repo as Casks/claude-companion.rb"
+    echo "  3. brew install --cask pwissenberg/tap/claude-companion"
+    echo
+    echo "The repository must be public for Homebrew to download the asset, and the"
+    echo "app is ad-hoc signed, so Gatekeeper will quarantine it - see the README."
     ;;
 esac
