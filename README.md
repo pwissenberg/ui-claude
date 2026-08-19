@@ -189,6 +189,12 @@ surface, so they have to be neutralised one by one:
   the viewport wide, at least 40pt tall, and no more than 40 characters of text - the
   band contains claude.ai's "Quick answer" button, so requiring it to be empty would
   skip the element that needs clearing.
+- The composer is **sticky**, so the transcript scrolls underneath it. claude.ai hides
+  that with a scrim fading to its own opaque surface; removing that scrim without
+  replacing it leaves message text running straight through the composer. The footer
+  gets a `backdrop-filter` blur *and* a fade to `rgba(0,0,0,0.3)` instead - the blur
+  does the work a macOS toolbar's does, and the fade still covers it on any engine
+  where `backdrop-filter` is unavailable.
 - **Translucent Chat** in the menu turns this off, restoring claude.ai's native opaque
   surface. Every scrim then blends correctly by construction, so it is the
   guaranteed-clean fallback if a new artefact ever slips through.

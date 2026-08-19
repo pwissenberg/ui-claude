@@ -476,6 +476,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case "hide": if panel.isVisible { toggle() }
             case "check": runHealthCheck()
             case "test-paste": testPaste()
+            case "scroll":
+                // Parks the transcript so text sits behind the sticky composer,
+                // which is the only state where the backdrop blur is visible.
+                webView.evaluateJavaScript("""
+                    var sc = document.querySelector('div.overflow-y-auto');
+                    if (sc) { sc.scrollTop = Math.max(0, sc.scrollHeight - sc.clientHeight - 220); }
+                    var f = document.querySelector('div.sticky.bottom-0');
+                    f ? getComputedStyle(f).webkitBackdropFilter || getComputedStyle(f).backdropFilter : 'no footer'
+                """) { result, _ in
+                    Log.info("scroll: footer backdrop-filter = \(result as? String ?? "?")")
+                }
             case "snapshot": captureSnapshots()
             case "screengrab": captureOnScreen()
             case "login-item": toggleLoginItem()
