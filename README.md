@@ -45,10 +45,11 @@ action by matching it against the Edit menu's key equivalents; an app with no ma
 never gets that match, so ⌘V, ⌘C, ⌘X, ⌘A and ⌘Z are silently dropped - you can type
 into Claude but not paste. `CompanionPanel.performKeyEquivalent` dispatches those
 actions down the responder chain instead, which needs no menu to exist.
-`claudecompanion://test-paste` exercises the real keystroke path end to end. **Start at Login** uses `SMAppService`, which
-needs no helper bundle or permission prompt; if registration fails it says so in an
-alert rather than silently doing nothing, and points at System Settings → General →
-Login Items.
+`claudecompanion://test-paste` exercises the real keystroke path end to end.
+
+**Start at Login** uses `SMAppService`, which needs no helper bundle or permission
+prompt; if registration fails it says so in an alert rather than silently doing
+nothing, and points at System Settings → General → Login Items.
 
 ## Usage
 
@@ -127,6 +128,7 @@ needs trimming to stop it colliding with the content and the rounded corners:
   - **The hiding is reversible.** Once the banner's text is gone the element is
     ordinary again, so the class is removed. Hiding permanently strands whatever that
     element holds next.
+
 **The chat view uses claude.ai's own opaque dark surface by default.** Its scrims,
 gradients and overlays are all drawn to fade into that surface, so they only misrender
 when the page is forced transparent - a black band above the composer, gradients that
