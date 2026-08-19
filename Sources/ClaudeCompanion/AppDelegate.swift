@@ -542,6 +542,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Log.info("health check: \(text)")
             }
         }
+        webView.evaluateJavaScript(WebChrome.gradientProbeJS) { result, _ in
+            if let text = result as? String { Log.info("gradients:\n\(text)") }
+        }
         webView.evaluateJavaScript(WebChrome.chatChromeProbeJS) { result, _ in
             if let text = result as? String { Log.info("chat chrome:\n\(text)") }
         }

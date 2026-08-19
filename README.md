@@ -119,6 +119,14 @@ needs trimming to stop it colliding with the content and the rounded corners:
   - **The hiding is reversible.** Once the banner's text is gone the element is
     ordinary again, so the class is removed. Hiding permanently strands whatever that
     element holds next.
+- claude.ai fades the transcript out towards the composer with gradient scrims built
+  for its own solid background. Over a translucent window those read as a heavy black
+  band. `clearScrims` blanks them, matching on: a gradient background, at least 60% of
+  the viewport wide, at least 40pt tall, and no more than 40 characters of text - the
+  band contains claude.ai's "Quick answer" button, so requiring it to be empty would
+  skip the element that needs clearing.
+- Scrims are tagged **once**, like `.cc-surface`. The rule blanks the gradient, so
+  re-evaluating would find no gradient, untag it, and flip forever.
 - The default scrollbar is replaced with a 6pt translucent one.
 
 ### Compact mode

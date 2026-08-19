@@ -59,6 +59,11 @@ enum WebChrome {
        rounded box gets cut by the window's 22pt corners. */
     div.sticky.bottom-0 { padding-bottom: 10px !important; }
 
+    /* Scrims claude.ai fades the transcript out with. They are built for its own
+       solid background, so over a translucent window they read as a heavy black
+       band above the composer. Tagged by clearScrims. */
+    .cc-scrim { background-image: none !important; background-color: transparent !important; }
+
     /* Transient banners the layout script matches by text (see dismissBanners). */
     .cc-banner-hidden { display: none !important; }
 
@@ -240,8 +245,33 @@ enum WebChrome {
         });
       };
 
+      // Decorative fade-out gradients above the composer. They appear mid-response
+      // alongside the thinking indicator, so they have to be swept for continuously
+      // rather than once at load.
+      //
+      // Tagged once and never re-evaluated: the rule blanks the gradient, so a
+      // second look would find no gradient, untag it, and flip forever.
+      const clearScrims = () => {
+        document.querySelectorAll('div').forEach((el) => {
+          if (el.classList.contains('cc-scrim')) return;
+          const s = getComputedStyle(el);
+          if (!/gradient/.test(s.backgroundImage || '')) return;
+          // Decorative: a scrim carries no prose. A short label is allowed because
+          // claude.ai puts its "Quick answer" button inside the band, and requiring
+          // it to be empty would skip the very element that needs clearing.
+          if ((el.textContent || '').trim().length > 40) return;
+          const r = el.getBoundingClientRect();
+          if (r.width < innerWidth * 0.6 || r.height < 40) return;
+          el.classList.add('cc-scrim');
+          post({ mode: 'diag', detail: 'scrim cleared: '
+            + Math.round(r.width) + 'x' + Math.round(r.height)
+            + ' at ' + Math.round(r.top) });
+        });
+      };
+
       const tick = () => {
         dismissBanners();
+        clearScrims();
         const box = composerBox();
         if (!box) {
           if (last !== 'missing') {
@@ -561,6 +591,35 @@ enum WebChrome {
         if (r.height > 4) out.push('  ' + d(el));
       });
       return out.join('\\n');
+    })()
+    """
+
+    /// Diagnostic probe: finds gradient scrims. claude.ai fades content out towards
+    /// the composer with a gradient built for its own solid background, which over a
+    /// translucent window reads as a heavy black band.
+    static let gradientProbeJS = """
+    (() => {
+      const out = [];
+      document.querySelectorAll('*').forEach((el) => {
+        const s = getComputedStyle(el);
+        const bg = s.backgroundImage;
+        if (!bg || bg === 'none' || !/gradient/.test(bg)) return;
+        const r = el.getBoundingClientRect();
+        if (r.width < 80 || r.height < 20) return;
+        const cls = typeof el.className === 'string' && el.className
+          ? '.' + el.className.trim().split(/\\s+/).slice(0, 4).join('.')
+          : '';
+        if (out.length < 16) {
+          out.push(el.tagName.toLowerCase()
+            + (el.id ? '#' + el.id : '')
+            + (el.getAttribute('data-testid') ? '@' + el.getAttribute('data-testid') : '')
+            + cls
+            + ' ' + Math.round(r.width) + 'x' + Math.round(r.height) + '+' + Math.round(r.top)
+            + ' mask=' + (s.maskImage && s.maskImage !== 'none' ? 'yes' : 'no')
+            + ' bg=' + bg.slice(0, 110));
+        }
+      });
+      return out.length ? out.join('\\n') : 'no gradient elements';
     })()
     """
 
