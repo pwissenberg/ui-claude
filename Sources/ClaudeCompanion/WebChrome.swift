@@ -51,6 +51,17 @@ enum WebChrome {
       box-shadow: none !important;
     }
 
+    /* The footer disclaimer sits below the composer in the sticky footer, where a
+       440pt window has no room for it - it collides with the rounded bottom edge. */
+    div.sticky.bottom-0 div.text-muted.text-center { display: none !important; }
+
+    /* Lift the composer off the window's bottom edge. Flush against it, its own
+       rounded box gets cut by the window's 22pt corners. */
+    div.sticky.bottom-0 { padding-bottom: 10px !important; }
+
+    /* Transient banners the layout script matches by text (see dismissBanners). */
+    .cc-banner-hidden { display: none !important; }
+
     /* Slim, unobtrusive scrollbar in place of the default full-width one. */
     ::-webkit-scrollbar { width: 6px !important; height: 6px !important; }
     ::-webkit-scrollbar-track { background: transparent !important; }
@@ -199,7 +210,26 @@ enum WebChrome {
         document.querySelectorAll('.cc-surface').forEach((e) => e.classList.remove('cc-surface'));
       };
 
+      // Transient overlays that cover the conversation in a window this small.
+      // Matched by text because they carry no stable hook, and re-checked every
+      // tick because they appear mid-response, long after load.
+      const BANNERS = [/want to be notified/i, /enable (desktop )?notifications/i];
+      const dismissBanners = () => {
+        document.querySelectorAll('div,section,aside').forEach((el) => {
+          if (el.classList.contains('cc-banner-hidden')) return;
+          const text = (el.textContent || '').trim();
+          // Short enough to be the banner itself rather than a container holding it
+          // along with the conversation.
+          if (!text || text.length > 120) return;
+          if (!BANNERS.some((re) => re.test(text))) return;
+          const r = el.getBoundingClientRect();
+          if (r.height < 30 || r.height > 240) return;
+          el.classList.add('cc-banner-hidden');
+        });
+      };
+
       const tick = () => {
+        dismissBanners();
         const box = composerBox();
         if (!box) {
           if (last !== 'missing') {
@@ -476,6 +506,49 @@ enum WebChrome {
         }
       });
       return out.length ? out.join('\\n') : 'no stray elements';
+    })()
+    """
+
+    /// Diagnostic probe: finds the chat-view chrome - notification banner, footer
+    /// disclaimer, conversation header - with a few ancestors each, so the right
+    /// container can be targeted rather than the leaf text node.
+    static let chatChromeProbeJS = """
+    (() => {
+      const d = (el) => {
+        const r = el.getBoundingClientRect();
+        const cls = typeof el.className === 'string' && el.className
+          ? '.' + el.className.trim().split(/\\s+/).slice(0, 3).join('.')
+          : '';
+        return el.tagName.toLowerCase()
+          + (el.id ? '#' + el.id : '')
+          + (el.getAttribute('data-testid') ? '@' + el.getAttribute('data-testid') : '')
+          + (el.getAttribute('aria-label') ? '~' + el.getAttribute('aria-label') : '')
+          + cls
+          + ' ' + Math.round(r.width) + 'x' + Math.round(r.height) + '+' + Math.round(r.top);
+      };
+      const patterns = [
+        ['notify banner', /want to be notified/i],
+        ['footer disclaimer', /can make mistakes/i],
+        ['share button', /^share$/i],
+      ];
+      const out = [];
+      patterns.forEach(([label, re]) => {
+        let deepest = null;
+        document.querySelectorAll('div,span,button,p,section,header,aside').forEach((el) => {
+          const t = (el.textContent || '').trim();
+          if (t && t.length < 90 && re.test(t)) deepest = el;
+        });
+        out.push('--- ' + label + ' ---');
+        if (!deepest) { out.push('  not found'); return; }
+        let el = deepest, i = 0;
+        while (el && i++ < 5) { out.push('  ' + d(el)); el = el.parentElement; }
+      });
+      out.push('--- header candidates ---');
+      document.querySelectorAll('header').forEach((el) => {
+        const r = el.getBoundingClientRect();
+        if (r.height > 4) out.push('  ' + d(el));
+      });
+      return out.join('\\n');
     })()
     """
 

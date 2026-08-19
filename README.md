@@ -99,6 +99,20 @@ The panel is a translucent, single-conversation view rather than the full claude
      `div.pointer-events-none.absolute.inset-0` overlay that sits on top of `main`.
 - The sidebar, recents, pinned lists, and app header are hidden, leaving just the
   conversation.
+
+### Chat view
+
+Once a conversation exists the window is only 440pt wide, so claude.ai's own chrome
+needs trimming to stop it colliding with the content and the rounded corners:
+
+- The footer disclaimer (`div.sticky.bottom-0 div.text-muted.text-center`) is hidden.
+  It sits below the composer, where there is no room for it.
+- The composer gets 10pt of bottom padding. Flush against the window edge, its own
+  rounded box is cut by the 22pt window corners.
+- Transient overlays such as "Want to be notified when Claude responds?" cover the
+  reply in a window this small. They carry no stable hook, so `dismissBanners` matches
+  them by text on every tick - they appear mid-response, long after load, so a
+  one-shot check at load time would miss them.
 - The default scrollbar is replaced with a 6pt translucent one.
 
 ### Compact mode

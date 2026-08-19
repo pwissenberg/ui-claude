@@ -281,7 +281,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             object: panel
         )
 
-        webView.load(URLRequest(url: claudeURL))
+        // Overridable so a specific conversation can be reopened when diagnosing
+        // chat-view rendering, which /new cannot show.
+        let start = ProcessInfo.processInfo.environment["CLAUDE_COMPANION_URL"]
+            .flatMap(URL.init(string:)) ?? claudeURL
+        webView.load(URLRequest(url: start))
     }
 
     private func positionPanel() {
@@ -537,6 +541,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } else if let text = result as? String {
                 Log.info("health check: \(text)")
             }
+        }
+        webView.evaluateJavaScript(WebChrome.chatChromeProbeJS) { result, _ in
+            if let text = result as? String { Log.info("chat chrome:\n\(text)") }
         }
         webView.evaluateJavaScript(WebChrome.strayProbeJS) { result, _ in
             if let text = result as? String { Log.info("stray elements:\n\(text)") }
