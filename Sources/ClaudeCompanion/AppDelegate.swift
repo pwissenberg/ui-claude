@@ -38,14 +38,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var translucentChatMenuItem: NSMenuItem!
     private let translucentChatKey = "translucentChat"
 
-    /// When off (the default), the conversation view uses claude.ai's own opaque
-    /// dark surface. Its scrims and overlays are drawn to fade into that surface,
-    /// so they only misrender when the page is forced transparent - a black band
-    /// above the composer, gradients that stop mid-panel, and so on. Defaulting to
-    /// the native surface removes that whole class of defect rather than chasing
-    /// each element. The compact composer bar stays translucent either way.
+    /// On by default, so a conversation looks like the compact bar it grew out of -
+    /// same blur, same surface - rather than switching to a solid black window.
+    ///
+    /// The cost is that claude.ai's fade scrims are drawn to blend into its own
+    /// opaque surface, so they have to be neutralised (see `WebChrome`). Turning
+    /// this off restores that native surface, which is the guaranteed-clean
+    /// fallback if a new artefact ever slips through.
     private var translucentChat: Bool {
-        get { UserDefaults.standard.object(forKey: translucentChatKey) as? Bool ?? false }
+        get { UserDefaults.standard.object(forKey: translucentChatKey) as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: translucentChatKey) }
     }
 

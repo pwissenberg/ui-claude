@@ -51,6 +51,16 @@ enum WebChrome {
       box-shadow: none !important;
     }
 
+    /* In a conversation the composer still needs to read as a distinct input, but
+       claude.ai's opaque panel is a black slab on a translucent window. A light
+       translucent fill keeps the separation while matching the compact bar's
+       material. */
+    html:not(.cc-compact):not(.cc-solid) .cc-surface {
+      background-color: rgba(255, 255, 255, 0.10) !important;
+      border-color: rgba(255, 255, 255, 0.18) !important;
+      box-shadow: none !important;
+    }
+
     /* The footer disclaimer sits below the composer in the sticky footer, where a
        440pt window has no room for it - it collides with the rounded bottom edge. */
     div.sticky.bottom-0 div.text-muted.text-center { display: none !important; }
@@ -79,6 +89,17 @@ enum WebChrome {
 
     /* Transient banners the layout script matches by text (see dismissBanners). */
     .cc-banner-hidden { display: none !important; }
+
+    /* Tailwind names its gradient utilities, so this catches the fade scrims
+       declaratively - including those drawn on pseudo-elements - rather than
+       waiting for the JS sweep to notice them mid-response. Those scrims fade to
+       claude.ai's own opaque surface, which over a translucent window reads as a
+       black band across the panel. */
+    html:not(.cc-solid) main [class*="gradient"],
+    html:not(.cc-solid) main [class*="gradient"]::before,
+    html:not(.cc-solid) main [class*="gradient"]::after {
+      background-image: none !important;
+    }
 
     /* Solid chat background, when translucent chat is switched off.
        claude.ai's conversation view is built for an opaque dark surface - its
@@ -315,9 +336,11 @@ enum WebChrome {
         const compact = isCompact();
         // `isolate` is idempotent, so it can run every tick to catch newly rendered
         // siblings without the churn of removing and re-adding classes.
+        // Tag the composer's painted panel in both modes: compact strips it so the
+        // window frame becomes the composer, chat restyles it to match the blur.
+        tagSurface(box);
         if (compact) {
           isolate(box);
-          tagSurface(box);
         } else if (document.documentElement.classList.contains('cc-compact')) {
           restore();
         }

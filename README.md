@@ -129,15 +129,13 @@ needs trimming to stop it colliding with the content and the rounded corners:
     ordinary again, so the class is removed. Hiding permanently strands whatever that
     element holds next.
 
-**The chat view uses claude.ai's own opaque dark surface by default.** Its scrims,
-gradients and overlays are all drawn to fade into that surface, so they only misrender
-when the page is forced transparent - a black band above the composer, gradients that
-stop mid-panel. Keeping the native surface removes that whole class of defect at once,
-instead of chasing each element as it appears. The compact composer bar stays
-translucent either way, and **Translucent Chat** in the menu turns translucency back on
-for conversations.
+**A conversation looks like the compact bar it grew out of** - same blur, same surface,
+with the composer as a light translucent inset rather than claude.ai's opaque panel.
+Switching to a solid black window once a question was asked made the two states read as
+different apps.
 
-With translucency on, the remaining mitigations are:
+The cost is that claude.ai's scrims and overlays are drawn to fade into its own opaque
+surface, so they have to be neutralised one by one:
 
 - claude.ai fades the transcript out towards the composer with gradient scrims built
   for its own solid background. Over a translucent window those read as a heavy black
@@ -145,6 +143,9 @@ With translucency on, the remaining mitigations are:
   the viewport wide, at least 40pt tall, and no more than 40 characters of text - the
   band contains claude.ai's "Quick answer" button, so requiring it to be empty would
   skip the element that needs clearing.
+- **Translucent Chat** in the menu turns this off, restoring claude.ai's native opaque
+  surface. Every scrim then blends correctly by construction, so it is the
+  guaranteed-clean fallback if a new artefact ever slips through.
 - Scrims are tagged **once**, like `.cc-surface`. The rule blanks the gradient, so
   re-evaluating would find no gradient, untag it, and flip forever.
 - The sweep checks `::before` and `::after` as well as the element itself. A fade is
