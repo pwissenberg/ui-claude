@@ -52,6 +52,7 @@ Login Items.
 | Move the window | drag anywhere on it |
 | Reload / New Chat / Quit | menu-bar icon |
 | Stop it following the active window | menu bar → **Follow Active Window** |
+| Make conversations translucent too | menu bar → **Translucent Chat** |
 | Put the window back in its default spot | menu bar → **Reset Position** |
 | Toggle from a script | `./toggle.sh` or `open -g "claudecompanion://toggle"` |
 
@@ -119,6 +120,16 @@ needs trimming to stop it colliding with the content and the rounded corners:
   - **The hiding is reversible.** Once the banner's text is gone the element is
     ordinary again, so the class is removed. Hiding permanently strands whatever that
     element holds next.
+**The chat view uses claude.ai's own opaque dark surface by default.** Its scrims,
+gradients and overlays are all drawn to fade into that surface, so they only misrender
+when the page is forced transparent - a black band above the composer, gradients that
+stop mid-panel. Keeping the native surface removes that whole class of defect at once,
+instead of chasing each element as it appears. The compact composer bar stays
+translucent either way, and **Translucent Chat** in the menu turns translucency back on
+for conversations.
+
+With translucency on, the remaining mitigations are:
+
 - claude.ai fades the transcript out towards the composer with gradient scrims built
   for its own solid background. Over a translucent window those read as a heavy black
   band. `clearScrims` blanks them, matching on: a gradient background, at least 60% of
@@ -127,6 +138,9 @@ needs trimming to stop it colliding with the content and the rounded corners:
   skip the element that needs clearing.
 - Scrims are tagged **once**, like `.cc-surface`. The rule blanks the gradient, so
   re-evaluating would find no gradient, untag it, and flip forever.
+- The sweep checks `::before` and `::after` as well as the element itself. A fade is
+  commonly drawn with `before:bg-gradient-*`, which `getComputedStyle(el)` does not
+  report - so an element-only check is blind to exactly the scrims that matter.
 - The default scrollbar is replaced with a 6pt translucent one.
 
 ### Compact mode

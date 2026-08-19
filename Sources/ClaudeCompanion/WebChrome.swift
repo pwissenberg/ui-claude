@@ -62,10 +62,35 @@ enum WebChrome {
     /* Scrims claude.ai fades the transcript out with. They are built for its own
        solid background, so over a translucent window they read as a heavy black
        band above the composer. Tagged by clearScrims. */
-    .cc-scrim { background-image: none !important; background-color: transparent !important; }
+    .cc-scrim,
+    .cc-scrim::before,
+    .cc-scrim::after {
+      background-image: none !important;
+      background-color: transparent !important;
+    }
+
+    /* The fade above the composer is drawn on the sticky footer's pseudo-elements,
+       which no element-level rule reaches. */
+    div.sticky.bottom-0::before,
+    div.sticky.bottom-0::after {
+      background-image: none !important;
+      background-color: transparent !important;
+    }
 
     /* Transient banners the layout script matches by text (see dismissBanners). */
     .cc-banner-hidden { display: none !important; }
+
+    /* Solid chat background, when translucent chat is switched off.
+       claude.ai's conversation view is built for an opaque dark surface - its
+       scrims, gradients and overlays all fade to it - so restoring that surface
+       removes the whole class of artefacts at once, instead of patching them one
+       element at a time. The compact bar stays translucent either way. */
+    html.cc-solid:not(.cc-compact),
+    html.cc-solid:not(.cc-compact) body,
+    html.cc-solid:not(.cc-compact) main,
+    html.cc-solid:not(.cc-compact) main.dframe-content {
+      background-color: rgb(21, 21, 21) !important;
+    }
 
     /* Slim, unobtrusive scrollbar in place of the default full-width one. */
     ::-webkit-scrollbar { width: 6px !important; height: 6px !important; }
@@ -255,7 +280,11 @@ enum WebChrome {
         document.querySelectorAll('div').forEach((el) => {
           if (el.classList.contains('cc-scrim')) return;
           const s = getComputedStyle(el);
-          if (!/gradient/.test(s.backgroundImage || '')) return;
+          const where = ['self', '::before', '::after'].find((w, i) => {
+            const style = i === 0 ? s : getComputedStyle(el, w);
+            return /gradient/.test(style.backgroundImage || '');
+          });
+          if (!where) return;
           // Decorative: a scrim carries no prose. A short label is allowed because
           // claude.ai puts its "Quick answer" button inside the band, and requiring
           // it to be empty would skip the very element that needs clearing.
@@ -263,9 +292,12 @@ enum WebChrome {
           const r = el.getBoundingClientRect();
           if (r.width < innerWidth * 0.6 || r.height < 40) return;
           el.classList.add('cc-scrim');
-          post({ mode: 'diag', detail: 'scrim cleared: '
+          post({ mode: 'diag', detail: 'scrim cleared (' + where + '): '
             + Math.round(r.width) + 'x' + Math.round(r.height)
-            + ' at ' + Math.round(r.top) });
+            + ' at ' + Math.round(r.top)
+            + ' ' + el.tagName.toLowerCase()
+            + (typeof el.className === 'string' && el.className
+                ? '.' + el.className.trim().split(/\\s+/).slice(0, 3).join('.') : '') });
         });
       };
 
@@ -602,8 +634,15 @@ enum WebChrome {
       const out = [];
       document.querySelectorAll('*').forEach((el) => {
         const s = getComputedStyle(el);
-        const bg = s.backgroundImage;
-        if (!bg || bg === 'none' || !/gradient/.test(bg)) return;
+        // Pseudo-elements too: a fade is often drawn with `before:bg-gradient-*`,
+        // which getComputedStyle(el) alone does not report.
+        const before = getComputedStyle(el, '::before').backgroundImage;
+        const after = getComputedStyle(el, '::after').backgroundImage;
+        const bgs = [s.backgroundImage, before, after]
+          .map((b, i) => ({ b, where: ['self', '::before', '::after'][i] }))
+          .filter(({ b }) => b && b !== 'none' && /gradient/.test(b));
+        if (!bgs.length) return;
+        const bg = bgs.map(({ b, where }) => where + '=' + b.slice(0, 70)).join(' | ');
         const r = el.getBoundingClientRect();
         if (r.width < 80 || r.height < 20) return;
         const cls = typeof el.className === 'string' && el.className
@@ -616,7 +655,7 @@ enum WebChrome {
             + cls
             + ' ' + Math.round(r.width) + 'x' + Math.round(r.height) + '+' + Math.round(r.top)
             + ' mask=' + (s.maskImage && s.maskImage !== 'none' ? 'yes' : 'no')
-            + ' bg=' + bg.slice(0, 110));
+            + ' ' + bg);
         }
       });
       return out.length ? out.join('\\n') : 'no gradient elements';

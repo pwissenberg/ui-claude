@@ -35,6 +35,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastActiveAppPID: pid_t?
     private var followMenuItem: NSMenuItem!
     private var loginItemMenuItem: NSMenuItem!
+    private var translucentChatMenuItem: NSMenuItem!
+    private let translucentChatKey = "translucentChat"
+
+    /// When off (the default), the conversation view uses claude.ai's own opaque
+    /// dark surface. Its scrims and overlays are drawn to fade into that surface,
+    /// so they only misrender when the page is forced transparent - a black band
+    /// above the composer, gradients that stop mid-panel, and so on. Defaulting to
+    /// the native surface removes that whole class of defect rather than chasing
+    /// each element. The compact composer bar stays translucent either way.
+    private var translucentChat: Bool {
+        get { UserDefaults.standard.object(forKey: translucentChatKey) as? Bool ?? false }
+        set { UserDefaults.standard.set(newValue, forKey: translucentChatKey) }
+    }
 
     /// When on, the window appears at whatever window the user is working in.
     private var followsActiveWindow: Bool {
@@ -133,6 +146,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             keyEquivalent: ""
         )
         menu.addItem(loginItemMenuItem)
+        translucentChatMenuItem = NSMenuItem(
+            title: "Translucent Chat",
+            action: #selector(toggleTranslucentChat),
+            keyEquivalent: ""
+        )
+        translucentChatMenuItem.state = translucentChat ? .on : .off
+        menu.addItem(translucentChatMenuItem)
         menu.addItem(
             withTitle: "Reset Position",
             action: #selector(resetPosition),
@@ -377,6 +397,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func updateLoginItemState() {
         loginItemMenuItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
+    }
+
+    @objc private func toggleTranslucentChat() {
+        translucentChat.toggle()
+        translucentChatMenuItem.state = translucentChat ? .on : .off
+        applyChatOpacity()
+        Log.info("translucent chat: \(translucentChat)")
+    }
+
+    /// Pushes the current setting into the page. Runs after every load too, since
+    /// the class lives on <html> and a fresh document starts without it.
+    private func applyChatOpacity() {
+        let solid = !translucentChat
+        webView.evaluateJavaScript(
+            "document.documentElement.classList.toggle('cc-solid', \(solid))"
+        ) { _, _ in }
     }
 
     @objc private func toggleFollow() {
@@ -692,6 +728,7 @@ extension AppDelegate: WKNavigationDelegate {
         }
 
         guard url.host?.contains("claude.ai") == true else { return }
+        applyChatOpacity()
 
         // Confirm the stylesheet landed. claude.ai's markup can change under us, so a
         // silently-failed injection should show up in the log rather than as a
