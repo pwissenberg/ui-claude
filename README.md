@@ -112,7 +112,13 @@ needs trimming to stop it colliding with the content and the rounded corners:
 - Transient overlays such as "Want to be notified when Claude responds?" cover the
   reply in a window this small. They carry no stable hook, so `dismissBanners` matches
   them by text on every tick - they appear mid-response, long after load, so a
-  one-shot check at load time would miss them.
+  one-shot check at load time would miss them. Two rules keep that safe:
+  - **Never hide an element containing the composer.** claude.ai renders this banner
+    *inside* the composer's own wrapper, so matching on text alone takes the composer
+    down with it and leaves the conversation with no way to reply.
+  - **The hiding is reversible.** Once the banner's text is gone the element is
+    ordinary again, so the class is removed. Hiding permanently strands whatever that
+    element holds next.
 - The default scrollbar is replaced with a 6pt translucent one.
 
 ### Compact mode

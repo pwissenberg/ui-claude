@@ -215,13 +215,25 @@ enum WebChrome {
       // tick because they appear mid-response, long after load.
       const BANNERS = [/want to be notified/i, /enable (desktop )?notifications/i];
       const dismissBanners = () => {
+        const input = document.querySelector('[data-testid="chat-input"]');
         document.querySelectorAll('div,section,aside').forEach((el) => {
-          if (el.classList.contains('cc-banner-hidden')) return;
           const text = (el.textContent || '').trim();
           // Short enough to be the banner itself rather than a container holding it
           // along with the conversation.
-          if (!text || text.length > 120) return;
-          if (!BANNERS.some((re) => re.test(text))) return;
+          const matches = !!text && text.length <= 120
+            && BANNERS.some((re) => re.test(text));
+
+          if (el.classList.contains('cc-banner-hidden')) {
+            // Reversible: once the banner's text is gone this element is ordinary
+            // again. Hiding permanently would strand whatever it holds now.
+            if (!matches) el.classList.remove('cc-banner-hidden');
+            return;
+          }
+          if (!matches) return;
+          // Never hide anything containing the composer. claude.ai renders this
+          // banner *inside* the composer's own wrapper, so matching on text alone
+          // takes the composer down with it.
+          if (input && el.contains(input)) return;
           const r = el.getBoundingClientRect();
           if (r.height < 30 || r.height > 240) return;
           el.classList.add('cc-banner-hidden');
