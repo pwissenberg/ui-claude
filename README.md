@@ -195,6 +195,13 @@ surface, so they have to be neutralised one by one:
   gets a `backdrop-filter` blur *and* a fade to `rgba(0,0,0,0.3)` instead - the blur
   does the work a macOS toolbar's does, and the fade still covers it on any engine
   where `backdrop-filter` is unavailable.
+- Muted text - the "Thinking…" line, timestamps, the effort label - is
+  `rgb(137,135,129)`, chosen for a near-black surface. The translucent panel measures
+  about `rgb(129,129,129)`, so it lands at roughly **1.02:1** contrast: the same colour
+  as its background. `brightenMuted` measures luminance and lifts anything below the
+  threshold. It measures rather than matching a class, because that colour comes from
+  neither `--text-400` nor a `text-muted` utility - overriding the token provably
+  changed nothing.
 - **Translucent Chat** in the menu turns this off, restoring claude.ai's native opaque
   surface. Every scrim then blends correctly by construction, so it is the
   guaranteed-clean fallback if a new artefact ever slips through.

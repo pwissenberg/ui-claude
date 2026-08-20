@@ -641,6 +641,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Log.info("health check: \(text)")
             }
         }
+        webView.evaluateJavaScript(WebChrome.tokenChainProbeJS) { result, _ in
+            if let text = result as? String { Log.info("token chain:\n\(text)") }
+        }
+        webView.evaluateJavaScript(WebChrome.tokenProbeJS) { result, _ in
+            if let text = result as? String { Log.info("text tokens:\n\(text)") }
+        }
+        webView.evaluateJavaScript(WebChrome.mutedProbeJS) { result, _ in
+            if let text = result as? String { Log.info("low-contrast text:\n\(text)") }
+        }
         webView.evaluateJavaScript(WebChrome.gradientProbeJS) { result, _ in
             if let text = result as? String { Log.info("gradients:\n\(text)") }
         }

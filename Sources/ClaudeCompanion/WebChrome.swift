@@ -132,6 +132,16 @@ enum WebChrome {
       background-color: rgb(21, 21, 21) !important;
     }
 
+    /* Muted text - the "Thinking…" line, timestamps, the effort label - is
+       rgb(137,135,129), chosen for claude.ai's near-black surface. The translucent
+       panel measures about rgb(129,129,129), so that text lands at roughly 1.02:1
+       contrast against its own background: the same colour, effectively invisible.
+       Tagged by brightenMuted, which measures luminance rather than guessing which
+       token or utility class produced it. */
+    html:not(.cc-solid) .cc-readable {
+      color: rgba(255, 255, 255, 0.86) !important;
+    }
+
     /* Slim, unobtrusive scrollbar in place of the default full-width one. */
     ::-webkit-scrollbar { width: 6px !important; height: 6px !important; }
     ::-webkit-scrollbar-track { background: transparent !important; }
@@ -341,9 +351,33 @@ enum WebChrome {
         });
       };
 
+      // Text too dark to read on the panel. Measured, not matched by class: the
+      // muted colour here comes from neither --text-400 nor a `text-muted` utility,
+      // so luminance is the only reliable signal.
+      //
+      // Tagged once, like the scrims: the rule lightens the text, so a second look
+      // would find it readable, untag it, and flip back and forth.
+      const brightenMuted = () => {
+        document.querySelectorAll('main span, main a, main p, main time').forEach((el) => {
+          if (el.classList.contains('cc-readable')) return;
+          const own = Array.from(el.childNodes)
+            .filter((n) => n.nodeType === 3)
+            .map((n) => n.textContent.trim())
+            .join('');
+          if (!own) return;
+          const m = getComputedStyle(el).color.match(/rgba?\\(([^)]+)\\)/);
+          if (!m) return;
+          const parts = m[1].split(',').map((p) => parseFloat(p));
+          const lum = (0.2126 * parts[0] + 0.7152 * parts[1] + 0.0722 * parts[2]) / 255;
+          if (lum > 0.62) return;
+          el.classList.add('cc-readable');
+        });
+      };
+
       const tick = () => {
         dismissBanners();
         clearScrims();
+        brightenMuted();
         const box = composerBox();
         if (!box) {
           if (last !== 'missing') {
@@ -701,6 +735,97 @@ enum WebChrome {
         }
       });
       return out.length ? out.join('\\n') : 'no gradient elements';
+    })()
+    """
+
+    /// Diagnostic probe: reports low-contrast text. claude.ai's muted greys are
+    /// tuned for its own dark background and wash out over a translucent panel.
+    static let mutedProbeJS = """
+    (() => {
+      const out = [];
+      const luminance = (c) => {
+        const m = c.match(/rgba?\\(([^)]+)\\)/);
+        if (!m) return null;
+        const [r, g, b] = m[1].split(',').map((p) => parseFloat(p));
+        return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+      };
+      document.querySelectorAll('main *').forEach((el) => {
+        const text = Array.from(el.childNodes)
+          .filter((n) => n.nodeType === 3)
+          .map((n) => n.textContent.trim())
+          .join(' ');
+        if (!text || text.length > 70) return;
+        const style = getComputedStyle(el);
+        const lum = luminance(style.color);
+        // Mid greys are the problem: too dark to read on the panel's own grey.
+        if (lum === null || lum > 0.62) return;
+        const cls = typeof el.className === 'string' && el.className
+          ? '.' + el.className.trim().split(/\\s+/).slice(0, 4).join('.')
+          : '';
+        if (out.length < 14) {
+          out.push(el.tagName.toLowerCase() + cls
+            + ' color=' + style.color
+            + ' lum=' + lum.toFixed(2)
+            + ' "' + text.slice(0, 34) + '"');
+        }
+      });
+      return out.length ? out.join('\\n') : 'no low-contrast text found';
+    })()
+    """
+
+    /// Diagnostic probe: dumps the design tokens on :root, to find the variable
+    /// behind the muted text colour rather than patching each class that uses it.
+    static let tokenProbeJS = """
+    (() => {
+      const out = [];
+      for (const sheet of document.styleSheets) {
+        let rules;
+        try { rules = sheet.cssRules; } catch (e) { continue; }
+        for (const rule of rules) {
+          if (!rule.style || !/:root|^html$/.test(rule.selectorText || '')) continue;
+          for (const name of rule.style) {
+            if (!name.startsWith('--')) continue;
+            const value = rule.style.getPropertyValue(name).trim();
+            if (!/text|muted|secondary|fg|foreground/i.test(name)) continue;
+            if (out.length < 24) out.push(name + ' = ' + value);
+          }
+        }
+      }
+      const cs = getComputedStyle(document.documentElement);
+      ['--text-300', '--text-400', '--text-muted', '--text-secondary'].forEach((n) => {
+        const v = cs.getPropertyValue(n).trim();
+        if (v) out.push('computed ' + n + ' = ' + v);
+      });
+      return out.length ? out.join('\\n') : 'no text tokens found';
+    })()
+    """
+
+    /// Diagnostic probe: follows --text-400 from the muted element up its ancestors,
+    /// to find which one is shadowing an override set on <html>.
+    static let tokenChainProbeJS = """
+    (() => {
+      const out = [];
+      out.push('stylesheet has override: '
+        + /--text-400/.test(document.getElementById('claude-companion-style')?.textContent || ''));
+
+      let target = null;
+      document.querySelectorAll('main span').forEach((el) => {
+        const t = (el.textContent || '').trim();
+        if (!target && /^Thought for/.test(t)) target = el;
+      });
+      if (!target) return out.concat('no muted element found').join('\\n');
+
+      out.push('muted element colour = ' + getComputedStyle(target).color);
+      let el = target, i = 0;
+      while (el && i++ < 12) {
+        const value = getComputedStyle(el).getPropertyValue('--text-400').trim();
+        const cls = typeof el.className === 'string' && el.className
+          ? '.' + el.className.trim().split(/\\s+/).slice(0, 3).join('.')
+          : '';
+        out.push('  ' + el.tagName.toLowerCase() + cls + '  --text-400 = ' + (value || '(unset)'));
+        el = el.parentElement;
+      }
+      return out.join('\\n');
     })()
     """
 
