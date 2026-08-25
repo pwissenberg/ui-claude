@@ -193,9 +193,9 @@ surface, so they have to be neutralised one by one:
 - The composer is **sticky**, so the transcript scrolls underneath it. claude.ai hides
   that with a scrim fading to its own opaque surface; removing that scrim without
   replacing it leaves message text running straight through the composer. The footer
-  gets a `backdrop-filter` blur *and* a fade to `rgba(0,0,0,0.3)` instead - the blur
-  does the work a macOS toolbar's does, and the fade still covers it on any engine
-  where `backdrop-filter` is unavailable.
+  gets a `backdrop-filter` blur instead, doing the work a macOS toolbar's does. A
+  darkening fade was tried alongside it and removed: it read as a shadow smeared
+  across the bottom of the panel, and the blur alone is enough.
 - Muted text - the "Thinking…" line, timestamps, the effort label - is
   `rgb(137,135,129)`, chosen for a near-black surface. The translucent panel measures
   about `rgb(129,129,129)`, so it lands at roughly **1.02:1** contrast: the same colour

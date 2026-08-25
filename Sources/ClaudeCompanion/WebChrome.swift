@@ -67,17 +67,13 @@ enum WebChrome {
        backdrop instead obscures the text passing behind without painting a colour
        the window does not have, the way a macOS toolbar does. */
     html:not(.cc-compact):not(.cc-solid) div.sticky.bottom-0 {
-      -webkit-backdrop-filter: blur(20px) saturate(150%) !important;
-      backdrop-filter: blur(20px) saturate(150%) !important;
-      /* A gentle fade as well as the blur: claude.ai's own scrim is replaced, not
-         merely deleted. This one darkens towards the composer instead of fading to
-         a solid colour the window does not have, so it reads as depth rather than
-         as a black band - and it still works if backdrop-filter is unavailable. */
-      background-image: linear-gradient(
-        to bottom,
-        rgba(0, 0, 0, 0) 0%,
-        rgba(0, 0, 0, 0.30) 60%
-      ) !important;
+      /* Blur only, no tint. A darkening fade was tried here as a belt-and-braces
+         alongside the blur, and it read as a shadow smeared across the bottom of
+         the panel - the blur alone hides the text passing behind. */
+      -webkit-backdrop-filter: blur(24px) saturate(150%) !important;
+      backdrop-filter: blur(24px) saturate(150%) !important;
+      background-image: none !important;
+      background-color: transparent !important;
     }
 
     /* The footer disclaimer sits below the composer in the sticky footer, where a
