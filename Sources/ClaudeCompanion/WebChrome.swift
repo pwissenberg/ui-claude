@@ -142,6 +142,30 @@ enum WebChrome {
       color: rgba(255, 255, 255, 0.86) !important;
     }
 
+    /* New-conversation button, injected into the header's actions slot. Styled to
+       match the neighbouring controls rather than to stand out. */
+    #cc-new-chat {
+      appearance: none !important;
+      -webkit-appearance: none !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      gap: 5px !important;
+      margin-right: 6px !important;
+      padding: 5px 10px !important;
+      border: 1px solid rgba(255, 255, 255, 0.18) !important;
+      border-radius: 8px !important;
+      background: rgba(255, 255, 255, 0.10) !important;
+      color: rgba(255, 255, 255, 0.92) !important;
+      font: inherit !important;
+      font-size: 12px !important;
+      line-height: 1 !important;
+      cursor: pointer !important;
+    }
+    #cc-new-chat:hover { background: rgba(255, 255, 255, 0.20) !important; }
+    #cc-new-chat:active { background: rgba(255, 255, 255, 0.26) !important; }
+    /* The compact bar is already an empty conversation, and has no header anyway. */
+    html.cc-compact #cc-new-chat { display: none !important; }
+
     /* Slim, unobtrusive scrollbar in place of the default full-width one. */
     ::-webkit-scrollbar { width: 6px !important; height: 6px !important; }
     ::-webkit-scrollbar-track { background: transparent !important; }
@@ -374,7 +398,31 @@ enum WebChrome {
         });
       };
 
+      // A visible way to start a fresh conversation. Injected into claude.ai's own
+      // header actions slot so it sits with the other controls, and re-added on
+      // every tick because React replaces that subtree freely.
+      //
+      // It posts a message rather than navigating itself, so the button, the menu
+      // item and ⌘N all end up in the same code path.
+      const ensureNewChatButton = () => {
+        if (document.getElementById('cc-new-chat')) return;
+        const slot = document.querySelector('#dframe-header-actions-slot');
+        if (!slot) return;
+        const button = document.createElement('button');
+        button.id = 'cc-new-chat';
+        button.type = 'button';
+        button.textContent = 'New';
+        button.title = 'Start a new conversation (Cmd-N)';
+        button.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          post({ mode: 'newChat' });
+        });
+        slot.insertBefore(button, slot.firstChild);
+      };
+
       const tick = () => {
+        ensureNewChatButton();
         dismissBanners();
         clearScrims();
         brightenMuted();
@@ -868,7 +916,19 @@ enum WebChrome {
           + (r.bottom > innerHeight + 1 ? ' CLIPPED' : ' fits');
       }
 
+      const newChat = document.getElementById('cc-new-chat');
+      let newChatState = 'absent';
+      if (newChat) {
+        const r = newChat.getBoundingClientRect();
+        const cs = getComputedStyle(newChat);
+        newChatState = Math.round(r.width) + 'x' + Math.round(r.height)
+          + ' at ' + Math.round(r.left) + ',' + Math.round(r.top)
+          + ' colour=' + cs.color + ' bg=' + cs.backgroundColor
+          + (r.width > 0 && r.height > 0 && r.top >= 0 ? ' VISIBLE' : ' NOT VISIBLE');
+      }
+
       return 'style injected=' + !!document.getElementById('claude-companion-style')
+        + ' new-chat=' + newChatState
         + ' body bg=' + bodyBG
         + ' main bg=' + mainBG
         + ' sidebar display=' + sidebarDisplay

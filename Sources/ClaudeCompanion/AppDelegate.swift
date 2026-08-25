@@ -132,7 +132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         menu.addItem(toggleMenuItem)
         menu.addItem(.separator())
-        menu.addItem(withTitle: "New Chat", action: #selector(newChat), keyEquivalent: "")
+        menu.addItem(withTitle: "New Chat  (⌘N)", action: #selector(newChat(_:)), keyEquivalent: "")
         menu.addItem(withTitle: "Reload", action: #selector(reload), keyEquivalent: "")
         followMenuItem = NSMenuItem(
             title: "Follow Active Window",
@@ -476,6 +476,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case "hide": if panel.isVisible { toggle() }
             case "check": runHealthCheck()
             case "test-paste": testPaste()
+            case "test-newchat": testNewChat()
+            case "test-newchat-button": testNewChatButton()
             case "scroll":
                 // Parks the transcript so text sits behind the sticky composer,
                 // which is the only state where the backdrop blur is visible.
@@ -499,7 +501,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         webView.reload()
     }
 
-    @objc private func newChat() {
+    /// Starts a fresh conversation. Reachable from the menu, the in-window button,
+    /// and ⌘N - the panel dispatches that through the responder chain, which is why
+    /// this takes a sender and is not private.
+    @objc func newChat(_ sender: Any?) {
+        Log.info("new conversation requested")
         goHome()
     }
 
@@ -586,6 +592,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Log.info("test paste: composer focused = \(focused as? Bool ?? false)")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 self?.sendPasteKeystroke()
+            }
+        }
+    }
+
+    /// Clicks the injected button, which reaches `newChat` over the message handler -
+    /// a different route from ⌘N, so proving one says nothing about the other.
+    private func testNewChatButton() {
+        webView.evaluateJavaScript(
+            "var b = document.getElementById('cc-new-chat'); if (b) b.click(); !!b"
+        ) { clicked, _ in
+            Log.info("test button: clicked = \(clicked as? Bool ?? false)")
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+            self?.webView.evaluateJavaScript("location.pathname") { result, _ in
+                Log.info("test button: now at \(result as? String ?? "?")")
+            }
+        }
+    }
+
+    /// Synthesises ⌘N and reports where the web view ended up, exercising the same
+    /// path a real keystroke takes rather than calling `newChat` directly.
+    private func testNewChat() {
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: .command,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: panel.windowNumber,
+            context: nil,
+            characters: "n",
+            charactersIgnoringModifiers: "n",
+            isARepeat: false,
+            keyCode: 45
+        ) else {
+            Log.error("test new chat: could not synthesise the event")
+            return
+        }
+        let handled = panel.performKeyEquivalent(with: event)
+        Log.info("test new chat: key equivalent handled = \(handled)")
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+            self?.webView.evaluateJavaScript("location.pathname") { result, _ in
+                Log.info("test new chat: now at \(result as? String ?? "?")")
             }
         }
     }
@@ -692,6 +741,11 @@ extension AppDelegate: WKScriptMessageHandler {
               let body = message.body as? [String: Any],
               let mode = body["mode"] as? String else { return }
         let composerHeight = (body["height"] as? NSNumber)?.doubleValue ?? 0
+
+        if mode == "newChat" {
+            newChat(nil)
+            return
+        }
 
         if mode == "diag" {
             Log.warn("composer not visible: \(body["detail"] as? String ?? "?")")

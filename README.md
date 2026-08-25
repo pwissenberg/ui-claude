@@ -104,7 +104,8 @@ will not meet, so a personal tap is the practical route either way.
 | Show / hide the window | **⌥Space** |
 | Dismiss the window | **Esc** |
 | Move the window | drag anywhere on it |
-| Reload / New Chat / Quit | menu-bar icon |
+| Start a new conversation | **⌘N**, the **New** button in the header, or the menu |
+| Reload / Quit | menu-bar icon |
 | Stop it following the active window | menu bar → **Follow Active Window** |
 | Make conversations translucent too | menu bar → **Translucent Chat** |
 | Put the window back in its default spot | menu bar → **Reset Position** |
@@ -211,6 +212,25 @@ surface, so they have to be neutralised one by one:
   commonly drawn with `before:bg-gradient-*`, which `getComputedStyle(el)` does not
   report - so an element-only check is blind to exactly the scrims that matter.
 - The default scrollbar is replaced with a 6pt translucent one.
+
+### Starting a new conversation
+
+Three routes, all ending in the same `newChat`: the **New** button in the conversation
+header, **⌘N**, and the menu-bar item.
+
+- The button is injected into claude.ai's own `#dframe-header-actions-slot`, so it sits
+  with the other header controls, and is re-added on every tick because React replaces
+  that subtree freely. It **posts a message** rather than navigating itself, so all
+  three routes share one code path.
+- ⌘N goes through `performKeyEquivalent` like the editing shortcuts - there is no menu
+  for AppKit to match it against.
+- Starting a new conversation returns the window to the compact composer bar, since the
+  page is back at `/new`.
+
+Note that the button and the keystroke reach `newChat` by **different** routes - the
+message handler versus the responder chain - so verifying one proves nothing about the
+other. Both are exercised by `claudecompanion://test-newchat-button` and
+`claudecompanion://test-newchat`.
 
 ### Compact mode
 

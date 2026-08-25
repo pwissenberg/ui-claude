@@ -63,6 +63,9 @@ final class CompanionPanel: NSPanel {
             ? Selector(("pasteAsPlainText:"))
             : #selector(NSText.paste(_:))
         case "a": action = #selector(NSText.selectAll(_:))
+        // ⌘N starts a fresh conversation. There is no menu to carry the shortcut,
+        // so it is dispatched here like the editing ones.
+        case "n": action = #selector(AppDelegate.newChat(_:))
         case "z": action = flags.contains(.shift) ? Selector(("redo:")) : Selector(("undo:"))
         default: action = nil
         }
