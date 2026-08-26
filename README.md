@@ -128,6 +128,7 @@ bindable from Raycast, Shortcuts, or Alfred.
 | `GlobalHotKey.swift` | System-wide hot key via Carbon (no Accessibility permission needed), with fallback combos. |
 | `Log.swift` | stderr + `~/Library/Logs/ClaudeCompanion.log` logging. |
 | `build.sh` | Compiles with SwiftPM and assembles a signed `.app` bundle. |
+| `Tools/make-icon.swift` | Draws the app icon and writes `Resources/AppIcon.icns`. |
 
 ### Appearance
 

@@ -13,6 +13,7 @@ set -euo pipefail
 APP_NAME="Claude Companion"
 BUNDLE_ID="co.rockflour.claudecompanion"
 EXECUTABLE="ClaudeCompanion"
+ICON_NAME="AppIcon"
 VERSION="0.1.0"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,6 +30,14 @@ rm -rf "$APP_DIR"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
 cp "$BIN_PATH" "$CONTENTS/MacOS/$EXECUTABLE"
 
+# The icon is a build product of Tools/make-icon.swift, committed so a plain
+# build needs no extra step. Re-run that script after changing the artwork.
+if [[ -f "$ROOT/Resources/$ICON_NAME.icns" ]]; then
+    cp "$ROOT/Resources/$ICON_NAME.icns" "$CONTENTS/Resources/$ICON_NAME.icns"
+else
+    echo "!!  Resources/$ICON_NAME.icns is missing - run: swift Tools/make-icon.swift"
+fi
+
 cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -38,6 +47,8 @@ cat > "$CONTENTS/Info.plist" <<PLIST
     <key>CFBundleDisplayName</key>     <string>$APP_NAME</string>
     <key>CFBundleIdentifier</key>      <string>$BUNDLE_ID</string>
     <key>CFBundleExecutable</key>      <string>$EXECUTABLE</string>
+    <key>CFBundleIconFile</key>        <string>$ICON_NAME</string>
+    <key>CFBundleIconName</key>        <string>$ICON_NAME</string>
     <key>CFBundlePackageType</key>     <string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
     <key>CFBundleVersion</key>         <string>1</string>
