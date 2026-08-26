@@ -1084,6 +1084,41 @@ enum WebChrome {
     })()
     """
 
+    /// Diagnostic probe: is the right-hand gap a layout constraint, or just where
+    /// the words happen to break? Measures the paragraph against its container and
+    /// each rendered line against the available width.
+    static let wrapProbeJS = """
+    (() => {
+      const input = document.querySelector('[data-testid="chat-input"]');
+      if (!input) return 'composer not found';
+      const editor = input.getBoundingClientRect();
+      const out = ['editor width=' + Math.round(editor.width)];
+
+      const p = input.querySelector('p');
+      if (!p) return out.concat('no paragraph').join('\\n');
+      const cs = getComputedStyle(p);
+      const pr = p.getBoundingClientRect();
+      out.push('paragraph width=' + Math.round(pr.width)
+        + ' maxWidth=' + cs.maxWidth
+        + ' padding=' + cs.paddingLeft + '/' + cs.paddingRight
+        + ' textAlign=' + cs.textAlign
+        + ' hyphens=' + cs.hyphens);
+
+      // Each rendered line, and how much room was left on it.
+      const node = p.firstChild;
+      if (node && node.nodeType === 3) {
+        const range = document.createRange();
+        range.selectNodeContents(p);
+        const lines = Array.from(range.getClientRects());
+        lines.forEach((line, i) => {
+          out.push('  line ' + i + ' width=' + Math.round(line.width)
+            + ' unused=' + Math.round(pr.width - line.width));
+        });
+      }
+      return out.join('\\n');
+    })()
+    """
+
     /// Verifies the injection actually took effect, rather than assuming it did.
     static let verifyJS = """
     (() => {
