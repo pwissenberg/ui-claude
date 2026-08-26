@@ -214,6 +214,16 @@ surface, so they have to be neutralised one by one:
   report - so an element-only check is blind to exactly the scrims that matter.
 - The default scrollbar is replaced with a 6pt translucent one.
 
+### Composer spacing
+
+claude.ai puts a 12pt gap between the input and the controls row, with 14pt margins
+around both - proportions for a full-width window, which leave an obvious hole in a
+440pt panel. Reduced to 6pt and 10pt.
+
+The input row itself is deliberately untouched: it is sized by its content, so it still
+grows as a message wraps. A `min-height: 0` was tried on it first and removed - the row
+was already `min-height: 0px`, and its height was simply the draft it contained.
+
 ### Enter to send
 
 claude.ai's composer variant here (`composer-card-latch = classic`) sends on

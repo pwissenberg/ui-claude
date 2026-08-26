@@ -764,6 +764,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Log.info("health check: \(text)")
             }
         }
+        webView.evaluateJavaScript(WebChrome.inputRowProbeJS) { result, _ in
+            if let text = result as? String { Log.info("input row:\n\(text)") }
+        }
+        webView.evaluateJavaScript(WebChrome.composerSpacingProbeJS) { result, _ in
+            if let text = result as? String { Log.info("composer spacing:\n\(text)") }
+        }
         webView.evaluateJavaScript(WebChrome.sendProbeJS) { result, _ in
             if let text = result as? String { Log.info("send behaviour:\n\(text)") }
         }

@@ -138,6 +138,15 @@ enum WebChrome {
       color: rgba(255, 255, 255, 0.86) !important;
     }
 
+    /* Tighten the composer's internals: 12pt between the input and the controls
+       plus 14pt margins are proportions for a full-width window, and leave an
+       obvious hole in a 440pt panel. The input row itself is left alone - it is
+       sized by its content, so it still grows as the message wraps. */
+    .cc-surface div.flex.flex-col[class*="gap-3"] {
+      gap: 6px !important;
+      margin: 10px !important;
+    }
+
     /* New-conversation button, injected into the header's actions slot. Styled to
        match the neighbouring controls rather than to stand out. */
     #cc-new-chat {
@@ -959,6 +968,72 @@ enum WebChrome {
       } else {
         out.push('  (composer not found)');
       }
+      return out.join('\\n');
+    })()
+    """
+
+    /// Diagnostic probe: the composer's internal spacing - which element supplies the
+    /// gap between the input row and the controls row, and how much.
+    static let composerSpacingProbeJS = """
+    (() => {
+      const input = document.querySelector('[data-testid="chat-input"]');
+      if (!input) return 'composer not found';
+      const box = input.closest('fieldset') || input;
+      const out = [];
+      box.querySelectorAll('*').forEach((el) => {
+        const cs = getComputedStyle(el);
+        const gap = cs.rowGap && cs.rowGap !== 'normal' ? parseFloat(cs.rowGap) : 0;
+        const mt = parseFloat(cs.marginTop) || 0;
+        const mb = parseFloat(cs.marginBottom) || 0;
+        const pt = parseFloat(cs.paddingTop) || 0;
+        const pb = parseFloat(cs.paddingBottom) || 0;
+        if (gap < 4 && mt < 4 && mb < 4 && pt < 4 && pb < 4) return;
+        const r = el.getBoundingClientRect();
+        if (r.height < 8) return;
+        const cls = typeof el.className === 'string' && el.className
+          ? '.' + el.className.trim().split(/\\s+/).slice(0, 4).join('.')
+          : '';
+        if (out.length < 12) {
+          out.push(el.tagName.toLowerCase() + cls
+            + ' ' + Math.round(r.width) + 'x' + Math.round(r.height)
+            + ' gap=' + gap + ' margin=' + mt + '/' + mb
+            + ' padding=' + pt + '/' + pb);
+        }
+      });
+      const r = box.getBoundingClientRect();
+      out.unshift('composer box = ' + Math.round(r.width) + 'x' + Math.round(r.height));
+      return out.join('\\n');
+    })()
+    """
+
+    /// Diagnostic probe: why the composer's input row is taller than its text.
+    static let inputRowProbeJS = """
+    (() => {
+      const input = document.querySelector('[data-testid="chat-input"]');
+      if (!input) return 'composer not found';
+      const row = input.closest('div.overflow-y-auto') || input.parentElement;
+      const out = [];
+      const describe = (el, label) => {
+        const cs = getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        const cls = typeof el.className === 'string' && el.className
+          ? '.' + el.className.trim().split(/\\s+/).slice(0, 3).join('.')
+          : '';
+        out.push(label + el.tagName.toLowerCase() + cls
+          + ' rect=' + Math.round(r.width) + 'x' + Math.round(r.height)
+          + ' height=' + cs.height + ' min=' + cs.minHeight + ' max=' + cs.maxHeight
+          + ' padding=' + cs.paddingTop + '/' + cs.paddingBottom
+          + ' inline="' + (el.getAttribute('style') || '') + '"');
+      };
+      describe(row, 'row: ');
+      Array.from(row.children).forEach((child) => describe(child, '  child: '));
+      describe(input, '  input: ');
+      Array.from(input.children).forEach((child, i) => {
+        describe(child, '    editor child ' + i + ': ');
+        const cs = getComputedStyle(child);
+        out.push('      line-height=' + cs.lineHeight + ' margin=' + cs.marginTop
+          + '/' + cs.marginBottom + ' text="' + (child.textContent || '').slice(0, 24) + '"');
+      });
       return out.join('\\n');
     })()
     """
