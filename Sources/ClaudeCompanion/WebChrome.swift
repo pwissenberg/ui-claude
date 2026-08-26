@@ -144,7 +144,20 @@ enum WebChrome {
        sized by its content, so it still grows as the message wraps. */
     .cc-surface div.flex.flex-col[class*="gap-3"] {
       gap: 6px !important;
-      margin: 10px !important;
+      margin: 10px 8px !important;
+    }
+
+    /* Reclaim horizontal space. Five nested containers inset the composer, costing
+       36pt before the text starts and 30pt after it - 15% of a 440pt window given
+       to margins that were sized for a full-width browser. The outermost 8pt is
+       left alone so the text never touches the window edge. */
+    .cc-surface {
+      margin-left: 2px !important;
+      margin-right: 2px !important;
+    }
+    html:not(.cc-solid) div.mx-auto.mt-4.w-full {
+      padding-left: 0 !important;
+      padding-right: 0 !important;
     }
 
     /* New-conversation button, injected into the header's actions slot. Styled to
@@ -1034,6 +1047,32 @@ enum WebChrome {
         out.push('      line-height=' + cs.lineHeight + ' margin=' + cs.marginTop
           + '/' + cs.marginBottom + ' text="' + (child.textContent || '').slice(0, 24) + '"');
       });
+      return out.join('\\n');
+    })()
+    """
+
+    /// Diagnostic probe: where the composer's horizontal space goes, from the text
+    /// out to the window edge.
+    static let horizontalProbeJS = """
+    (() => {
+      const input = document.querySelector('[data-testid="chat-input"]');
+      if (!input) return 'composer not found';
+      const out = ['viewport = ' + Math.round(innerWidth)];
+      let el = input, i = 0;
+      while (el && i++ < 16 && el.tagName !== 'MAIN') {
+        const cs = getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        const cls = typeof el.className === 'string' && el.className
+          ? '.' + el.className.trim().split(/\\s+/).slice(0, 3).join('.')
+          : '';
+        out.push('  ' + el.tagName.toLowerCase() + cls
+          + ' width=' + Math.round(r.width)
+          + ' left=' + Math.round(r.left) + ' right=' + Math.round(innerWidth - r.right)
+          + ' margin=' + cs.marginLeft + '/' + cs.marginRight
+          + ' padding=' + cs.paddingLeft + '/' + cs.paddingRight
+          + ' maxw=' + cs.maxWidth);
+        el = el.parentElement;
+      }
       return out.join('\\n');
     })()
     """

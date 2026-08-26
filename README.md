@@ -224,6 +224,16 @@ The input row itself is deliberately untouched: it is sized by its content, so i
 grows as a message wraps. A `min-height: 0` was tried on it first and removed - the row
 was already `min-height: 0px`, and its height was simply the draft it contained.
 
+### Horizontal space
+
+Five nested containers inset the composer - the pane scroller's 8pt, a column's 4pt,
+the composer surface's 8pt margin, the inner column's 10pt, and a 6pt row padding -
+costing 36pt before the text starts and 30pt after it. That is 15% of a 440pt window
+spent on margins sized for a full-width browser.
+
+Trimmed to 28pt and 22pt, widening the text from 374pt to 390pt. The outermost 8pt is
+deliberately kept so text never touches the window edge.
+
 ### Enter to send
 
 claude.ai's composer variant here (`composer-card-latch = classic`) sends on

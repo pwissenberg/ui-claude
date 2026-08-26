@@ -764,6 +764,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Log.info("health check: \(text)")
             }
         }
+        webView.evaluateJavaScript(WebChrome.horizontalProbeJS) { result, _ in
+            if let text = result as? String { Log.info("horizontal:\n\(text)") }
+        }
         webView.evaluateJavaScript(WebChrome.inputRowProbeJS) { result, _ in
             if let text = result as? String { Log.info("input row:\n\(text)") }
         }
