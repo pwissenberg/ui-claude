@@ -225,6 +225,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // .default() is the persistent store, so the login/session survives relaunches.
         config.websiteDataStore = .default()
 
+        // Hide the non-functional WebAuthn API so sign-in falls back to a method
+        // that works in a web view. All frames, not just the main one: identity
+        // providers run their capability checks inside iframes.
+        config.userContentController.addUserScript(
+            WKUserScript(
+                source: WebChrome.noWebAuthnJS,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false
+            )
+        )
+
         // Inject the chrome-hiding + transparency stylesheet on every page load.
         config.userContentController.addUserScript(
             WKUserScript(
@@ -821,7 +832,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 extension AppDelegate: WKScriptMessageHandler {
     /// Receives the page's layout state and resizes the panel to match: composer
-    /// height when there's no conversation, full height once there is.
+    /// height when there's no conversation, full height once there is - and also
+    /// full height for `full`, which the page sends for anything that isn't a chat
+    /// at all (login, cookie consent, an error page). Without that last case a
+    /// panel that had already collapsed would stay collapsed on those pages.
     func userContentController(
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage
@@ -898,6 +912,16 @@ extension AppDelegate: WKUIDelegate {
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         Log.info("popup requested: \(navigationAction.request.url?.host ?? "?")")
+        // The passkey prompt appears here, in the identity provider's own window,
+        // so strip WebAuthn from the popup too. WebKit derives `configuration`
+        // from the opener's, but re-adding is cheap and removes the doubt.
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: WebChrome.noWebAuthnJS,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false
+            )
+        )
         let popup = PopupWindowController(
             configuration: configuration,
             userAgent: userAgent,

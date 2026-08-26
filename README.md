@@ -442,6 +442,15 @@ If the shortcut does nothing, the menu-bar menu will tell you which combo is liv
 
 ## Known limitations (v0.1 POC)
 
+- **Passkeys do not work**, and cannot be made to. WKWebView exposes
+  `window.PublicKeyCredential` but never vends the system authenticator to a
+  third-party app: the platform-authenticator check returns false even with Touch
+  ID enrolled and iCloud Keychain on. The entitlements that would unlock it
+  (`com.apple.developer.associated-domains`, `com.apple.developer.web-browser`)
+  are restricted - an ad-hoc signed build carrying either is killed by AMFI at
+  launch. So the app deletes `PublicKeyCredential` outright at document start,
+  which makes sign-in fall back to a method that does work rather than offering a
+  passkey button that dead-ends.
 - **Google "Sign in with Google"** can be blocked inside embedded web views by
   Google's security checks. Email / magic-link login works reliably.
 - Hot key list and window width are fixed (no settings UI yet).

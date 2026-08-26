@@ -3,6 +3,19 @@ import Foundation
 /// JavaScript and CSS injected into claude.ai to strip it down to a single
 /// conversation and let the window's translucency show through.
 enum WebChrome {
+    /// Removes the WebAuthn API from the page.
+    ///
+    /// WKWebView advertises `PublicKeyCredential` but never vends the system
+    /// authenticator to a third-party app: the page's platform-authenticator check
+    /// returns false even with Touch ID enrolled and iCloud Keychain on. Sites that
+    /// only feature-detect the API therefore offer a passkey button that cannot
+    /// complete, stranding sign-in. Removing the API outright makes them fall back
+    /// to what does work here - the emailed login code, or a password.
+    ///
+    /// Real passkey support needs a restricted entitlement Apple does not grant
+    /// for embedded web views, so hiding the API is the whole of the fix.
+    static let noWebAuthnJS = "delete window.PublicKeyCredential;"
+
     /// Strips claude.ai down to a single conversation and makes it transparent so
     /// the window's vibrancy shows through.
     ///
@@ -234,6 +247,11 @@ enum WebChrome {
       const HIDDEN = 'cc-hidden';
       const CHAIN = 'cc-chain';
       let last = '';
+      // Consecutive ticks with no composer on the page. The composer is briefly
+      // absent during any normal load, so a page only counts as "not a chat" once
+      // it has stayed that way for MISSING_LIMIT ticks.
+      let missing = 0;
+      const MISSING_LIMIT = 3;
 
       // The <fieldset> wrapping the input is the visible rounded composer box.
       const composerBox = () => {
@@ -453,12 +471,21 @@ enum WebChrome {
         brightenMuted();
         const box = composerBox();
         if (!box) {
+          // No composer means this is not a chat page - the login screen, the
+          // cookie consent wall, an error page. Those have to be readable, and
+          // compact height would crop them to a 104pt sliver the user cannot get
+          // out of, because nothing else here ever asks for full height back.
+          if (++missing === MISSING_LIMIT) {
+            restore();
+            post({ mode: 'full' });
+          }
           if (last !== 'missing') {
             last = 'missing';
             post({ mode: 'diag', detail: 'composer element not found' });
           }
           return;
         }
+        missing = 0;
         const compact = isCompact();
         // `isolate` is idempotent, so it can run every tick to catch newly rendered
         // siblings without the churn of removing and re-adding classes.
