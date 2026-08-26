@@ -160,6 +160,13 @@ enum WebChrome {
       padding-right: 0 !important;
     }
 
+    /* The input row carries 6pt of padding on the left and none on the right, so the
+       text sits off-centre inside the composer and the box reads as badly fitted.
+       Zeroing it squares the two sides up and gains the 6pt as line width. */
+    .cc-surface div.overflow-y-auto.break-words {
+      padding-left: 0 !important;
+    }
+
     /* New-conversation button, injected into the header's actions slot. Styled to
        match the neighbouring controls rather than to stand out. */
     #cc-new-chat {

@@ -231,8 +231,12 @@ the composer surface's 8pt margin, the inner column's 10pt, and a 6pt row paddin
 costing 36pt before the text starts and 30pt after it. That is 15% of a 440pt window
 spent on margins sized for a full-width browser.
 
-Trimmed to 28pt and 22pt, widening the text from 374pt to 390pt. The outermost 8pt is
-deliberately kept so text never touches the window edge.
+Trimmed to 22pt on both sides, widening the text from 374pt to 396pt. The outermost 8pt
+is deliberately kept so text never touches the window edge.
+
+The two sides also differed: the input row carries 6pt of padding on the left and none
+on the right, which pushed the text off-centre and made the composer look badly fitted
+around it. Zeroing that squares the sides up and gains the 6pt as line width.
 
 ### Enter to send
 
