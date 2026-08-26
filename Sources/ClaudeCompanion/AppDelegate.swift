@@ -478,6 +478,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case "test-paste": testPaste()
             case "test-newchat": testNewChat()
             case "test-newchat-button": testNewChatButton()
+            case "test-enter": testEnterToSend()
             case "scroll":
                 // Parks the transcript so text sits behind the sticky composer,
                 // which is the only state where the backdrop blur is visible.
@@ -596,6 +597,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Verifies Enter-to-send without posting anything.
+    ///
+    /// Types into the composer so the send button becomes enabled, dispatches a real
+    /// Enter keydown with the handler in dry-run mode, reports whether it would have
+    /// sent, then restores what was there. Testing with an empty composer proves
+    /// nothing: the handler deliberately stands aside when there is nothing to send.
+    ///
+    /// The steps are separate evaluations because the button's enabled state is React
+    /// state - it does not update within the same turn as the typing that caused it.
+    private func testEnterToSend() {
+        let type = """
+        (() => {
+          const input = document.querySelector('[data-testid="chat-input"]');
+          if (!input) return 'composer not found';
+          window.__ccDraft = input.textContent || '';
+          window.__ccDryRun = true;
+          window.__ccLastEnter = 'not intercepted';
+          input.focus();
+          document.execCommand('selectAll', false, null);
+          document.execCommand('insertText', false, 'enter-key probe');
+          return 'typed';
+        })()
+        """
+
+        let fire = """
+        (() => {
+          const input = document.querySelector('[data-testid="chat-input"]');
+          const button = document.querySelector('[data-testid="chat-input-send"]');
+          const enabled = button ? !button.disabled : false;
+          const plain = new KeyboardEvent('keydown', {
+            key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
+            bubbles: true, cancelable: true
+          });
+          input.dispatchEvent(plain);
+          const plainVerdict = window.__ccLastEnter
+            + ' (defaultPrevented=' + plain.defaultPrevented + ')';
+
+          window.__ccLastEnter = 'not intercepted';
+          const shifted = new KeyboardEvent('keydown', {
+            key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
+            shiftKey: true, bubbles: true, cancelable: true
+          });
+          input.dispatchEvent(shifted);
+          const shiftVerdict = window.__ccLastEnter
+            + ' (defaultPrevented=' + shifted.defaultPrevented + ')';
+
+          const verdict = 'send enabled=' + enabled
+            + ' | Enter: ' + plainVerdict
+            + ' | Shift-Enter: ' + shiftVerdict;
+
+          input.focus();
+          document.execCommand('selectAll', false, null);
+          document.execCommand('delete', false, null);
+          if (window.__ccDraft) document.execCommand('insertText', false, window.__ccDraft);
+          window.__ccDryRun = false;
+          return verdict;
+        })()
+        """
+
+        webView.evaluateJavaScript(type) { [weak self] result, _ in
+            Log.info("test enter: \(result as? String ?? "?")")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                self?.webView.evaluateJavaScript(fire) { result, error in
+                    if let error {
+                        Log.error("test enter: \(error.localizedDescription)")
+                    } else {
+                        Log.info("test enter: \(result as? String ?? "?")")
+                    }
+                }
+            }
+        }
+    }
+
     /// Clicks the injected button, which reaches `newChat` over the message handler -
     /// a different route from ⌘N, so proving one says nothing about the other.
     private func testNewChatButton() {
@@ -689,6 +763,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } else if let text = result as? String {
                 Log.info("health check: \(text)")
             }
+        }
+        webView.evaluateJavaScript(WebChrome.sendProbeJS) { result, _ in
+            if let text = result as? String { Log.info("send behaviour:\n\(text)") }
         }
         webView.evaluateJavaScript(WebChrome.tokenChainProbeJS) { result, _ in
             if let text = result as? String { Log.info("token chain:\n\(text)") }

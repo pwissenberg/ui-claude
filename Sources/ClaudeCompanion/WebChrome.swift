@@ -461,6 +461,52 @@ enum WebChrome {
         });
       };
 
+      // Enter sends; Shift-Enter stays a newline.
+      //
+      // claude.ai's composer variant here ("composer-card-latch = classic") does not
+      // send on a bare Enter, and exposes no preference to change that, so the key
+      // is handled directly. Capture phase, so the page's own handler never runs and
+      // the message cannot be sent twice.
+      const SEND = '[data-testid="chat-input-send"]';
+      const INPUT = '[data-testid="chat-input"]';
+      document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter') return;
+        if (event.metaKey || event.ctrlKey || event.altKey) return;
+        // Mid-composition in an IME: Enter accepts the candidate, it does not send.
+        if (event.isComposing || event.keyCode === 229) return;
+
+        const input = document.querySelector(INPUT);
+        if (!input || !(event.target === input || input.contains(event.target))) return;
+
+        // Shift-Enter has to be handled too, not just ignored. This composer variant
+        // sends on Shift-Enter, so leaving it alone would mean both keys send and
+        // nothing inserts a newline.
+        if (event.shiftKey) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (window.__ccDryRun) {
+            window.__ccLastEnter = 'would insert newline';
+            return;
+          }
+          if (!document.execCommand('insertLineBreak', false, null)) {
+            document.execCommand('insertText', false, '\\n');
+          }
+          return;
+        }
+
+        const button = document.querySelector(SEND);
+        // Nothing to send: leave the page to do whatever it would have done.
+        if (!button || button.disabled) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        if (window.__ccDryRun) {
+          window.__ccLastEnter = 'would send';
+          return;
+        }
+        button.click();
+      }, true);
+
       const post = (payload) => {
         if (window.webkit && window.webkit.messageHandlers
             && window.webkit.messageHandlers.layout) {
@@ -868,6 +914,50 @@ enum WebChrome {
           : '';
         out.push('  ' + el.tagName.toLowerCase() + cls + '  --text-400 = ' + (value || '(unset)'));
         el = el.parentElement;
+      }
+      return out.join('\\n');
+    })()
+    """
+
+    /// Diagnostic probe: what governs Enter-to-send, and how the send control is
+    /// identified, so the behaviour can be corrected at its source if possible.
+    static let sendProbeJS = """
+    (() => {
+      const out = [];
+
+      out.push('--- storage keys mentioning enter/send ---');
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!/enter|send|compos|shortcut|keybind/i.test(key)) continue;
+        const value = (localStorage.getItem(key) || '').slice(0, 120);
+        if (out.length < 20) out.push('  ' + key + ' = ' + value);
+      }
+      if (out.length === 1) out.push('  (none)');
+
+      out.push('--- send control ---');
+      const candidates = document.querySelectorAll(
+        'button[aria-label], button[type="submit"], [data-testid*="send"]');
+      candidates.forEach((el) => {
+        const label = el.getAttribute('aria-label') || el.getAttribute('data-testid') || '';
+        if (!/send|submit/i.test(label)) return;
+        const r = el.getBoundingClientRect();
+        if (out.length < 34) {
+          out.push('  ' + el.tagName.toLowerCase()
+            + (el.getAttribute('data-testid') ? '@' + el.getAttribute('data-testid') : '')
+            + ' aria="' + label + '"'
+            + ' ' + Math.round(r.width) + 'x' + Math.round(r.height)
+            + ' disabled=' + !!el.disabled);
+        }
+      });
+
+      out.push('--- composer input ---');
+      const input = document.querySelector('[data-testid="chat-input"]');
+      if (input) {
+        out.push('  ' + input.tagName.toLowerCase()
+          + ' contenteditable=' + input.getAttribute('contenteditable')
+          + ' enterkeyhint=' + (input.getAttribute('enterkeyhint') || '-'));
+      } else {
+        out.push('  (composer not found)');
       }
       return out.join('\\n');
     })()

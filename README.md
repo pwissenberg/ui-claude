@@ -104,6 +104,7 @@ will not meet, so a personal tap is the practical route either way.
 | Show / hide the window | **⌥Space** |
 | Dismiss the window | **Esc** |
 | Move the window | drag anywhere on it |
+| Send a message | **Enter** (**⇧Enter** for a newline) |
 | Start a new conversation | **⌘N**, the **New** button in the header, or the menu |
 | Reload / Quit | menu-bar icon |
 | Stop it following the active window | menu bar → **Follow Active Window** |
@@ -212,6 +213,26 @@ surface, so they have to be neutralised one by one:
   commonly drawn with `before:bg-gradient-*`, which `getComputedStyle(el)` does not
   report - so an element-only check is blind to exactly the scrims that matter.
 - The default scrollbar is replaced with a 6pt translucent one.
+
+### Enter to send
+
+claude.ai's composer variant here (`composer-card-latch = classic`) sends on
+**⇧Enter** and exposes no preference to change it, so the injected script handles the
+key itself: Enter clicks `[data-testid="chat-input-send"]`, ⇧Enter inserts a newline.
+
+- Handled in the **capture** phase, so the page's own handler never runs and a message
+  cannot be sent twice.
+- ⇧Enter is intercepted too, not merely ignored. Ignoring it would leave *both* keys
+  sending and nothing inserting a newline.
+- An IME mid-composition is left alone (`isComposing`, `keyCode === 229`), where Enter
+  accepts a candidate rather than sending.
+- With an empty composer the handler stands aside, since there is nothing to send.
+
+`claudecompanion://test-enter` verifies this **without posting anything**: it types into
+the composer so the send button becomes enabled, dispatches real Enter and ⇧Enter
+events with the handler in dry-run mode, reports what each *would* do, then restores the
+draft. Typing and checking must be separate evaluations - the button's enabled state is
+React state and does not update within the same turn as the typing that caused it.
 
 ### Starting a new conversation
 
