@@ -16,6 +16,15 @@ EXECUTABLE="ClaudeCompanion"
 ICON_NAME="AppIcon"
 VERSION="0.1.0"
 
+# Fail with an instruction rather than a bare "xcrun: error:" on a Mac that has
+# never had the developer tools installed.
+if ! xcrun --find swift >/dev/null 2>&1; then
+    echo "error: no Swift toolchain found." >&2
+    echo "Install Apple's Command Line Tools and re-run this script:" >&2
+    echo "    xcode-select --install" >&2
+    exit 1
+fi
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="$ROOT/build.noindex"
 APP_DIR="$BUILD_DIR/$APP_NAME.app"
@@ -67,6 +76,12 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
+
+# A repo downloaded as a zip carries com.apple.quarantine on every file, and
+# copying the icon in brings it along. Left in place it rides into the release
+# zip and Gatekeeper blocks the app on the other end. Strip it before signing,
+# so the signature covers the bundle in the state it ships in.
+xattr -dr com.apple.quarantine "$APP_DIR" 2>/dev/null || true
 
 echo "==> Ad-hoc code signing…"
 codesign --force --deep --sign - "$APP_DIR"

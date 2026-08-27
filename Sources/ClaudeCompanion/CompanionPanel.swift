@@ -1,5 +1,15 @@
 import AppKit
 
+/// Editing actions that live on the responder chain but are not exposed by any
+/// Swift-visible type, so `#selector` has nothing to name them with. Declaring
+/// them here keeps the call sites checked by the compiler instead of relying on
+/// raw selector strings, which the toolchain warns about.
+@objc private protocol ResponderChainActions {
+    func pasteAsPlainText(_ sender: Any?)
+    func undo(_ sender: Any?)
+    func redo(_ sender: Any?)
+}
+
 extension NSImage {
     /// A resizable rounded-rectangle mask for `NSVisualEffectView.maskImage`.
     ///
@@ -60,13 +70,15 @@ final class CompanionPanel: NSPanel {
         case "c": action = #selector(NSText.copy(_:))
         case "v": action = flags.contains(.shift)
             // ⌘⇧V is paste-and-match-style, which WebKit maps to pasting as plain text.
-            ? Selector(("pasteAsPlainText:"))
+            ? #selector(ResponderChainActions.pasteAsPlainText(_:))
             : #selector(NSText.paste(_:))
         case "a": action = #selector(NSText.selectAll(_:))
         // ⌘N starts a fresh conversation. There is no menu to carry the shortcut,
         // so it is dispatched here like the editing ones.
         case "n": action = #selector(AppDelegate.newChat(_:))
-        case "z": action = flags.contains(.shift) ? Selector(("redo:")) : Selector(("undo:"))
+        case "z": action = flags.contains(.shift)
+            ? #selector(ResponderChainActions.redo(_:))
+            : #selector(ResponderChainActions.undo(_:))
         default: action = nil
         }
 

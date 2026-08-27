@@ -1,6 +1,8 @@
 # Claude Companion
 
-A ChatGPT-desktop-style floating companion window for **Claude.ai** on macOS.
+**A floating Claude.ai window for macOS: press ⌥Space over any app to ask, press it
+again to dismiss.** Built because Claude has no equivalent of the ChatGPT desktop
+popup, and switching to a browser tab breaks the thread of whatever you were doing.
 
 Press **⌥Space** (Option+Space) anywhere to summon a small floating window with
 your Claude.ai account inside it. Press **⌥Space** again (or **Esc**) to dismiss it.
@@ -471,3 +473,10 @@ If the shortcut does nothing, the menu-bar menu will tell you which combo is liv
   logged, and recovered from via the fallback chain.
 - **Private-API KVC hack.** `setValue(false, forKey: "drawsBackground")` on
   `WKWebView` has no such setter; replaced with the public `underPageBackgroundColor`.
+
+## Licence
+
+MIT - see [LICENSE](LICENSE).
+
+Not affiliated with Anthropic. This is a third-party client that displays claude.ai in
+a web view; you sign in with your own account.
