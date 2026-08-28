@@ -113,7 +113,7 @@ case "${1:-}" in
         echo "==> /Applications is not writable; installing to $DEST instead"
     fi
 
-    echo "==> Installing to $DEST…"
+    echo "==> Installing to ${DEST}…"
     quit_running
     rm -rf "$DEST/$APP_NAME.app"
     cp -R "$APP_DIR" "$DEST/"
@@ -136,7 +136,7 @@ case "${1:-}" in
 
     mkdir -p "$DIST_DIR"
     rm -f "$ZIP_PATH"
-    echo "==> Packaging $ZIP_NAME…"
+    echo "==> Packaging ${ZIP_NAME}…"
     # ditto, not zip: it preserves the bundle's symlinks, extended attributes and
     # code signature, which a plain zip mangles.
     ditto -c -k --keepParent "$APP_DIR" "$ZIP_PATH"
